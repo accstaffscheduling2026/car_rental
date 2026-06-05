@@ -1,10 +1,12 @@
 # Special Need Vehicle Rental
 ## Complete Developer Guide
 
-**Version:** 1.0.0 (merged edition)
+**Version:** 1.1.0 (updated with production deployment)
 **Last Updated:** June 2026
+**Business:** SwiftRide Rentals Pty Ltd — 483 Hume Highway, Yagoona NSW 2199
 **Jurisdiction:** New South Wales, Australia
 **Audience:** Software developers, DevOps engineers, technical leads, and business owners overseeing a developer handoff
+**Production server:** `209.38.29.102` (DigitalOcean SYD1) — see `PRODUCTION.md` for full operational reference
 
 > **What this document is:** A single, self-contained reference that merges the Application Architecture & Developer Guide (v1.1.0) with the Developer Environment Guide (v1.0.0) into one downloadable file. Every section from both source documents is present here. You do not need to consult the other documents.
 
@@ -208,11 +210,11 @@ These are the exact version specifiers from `frontend/package.json`.
 | **Node.js** | **20.x LTS** (min 20.11.0) | https://nodejs.org/en/download/ | `iron` release. Do NOT use Node 18 (near EOL), 21/22 (not LTS). |
 | **npm** | **10.x** | Bundled with Node 20 | Do not install separately. |
 | **Git** | **2.40+** | https://git-scm.com/downloads | Required for version control and CI/CD deploy. |
-| **Ubuntu** | **22.04 LTS** (Jammy) | DigitalOcean droplet image | Support until April 2027. Do not use 20.04 (approaching EOL). |
-| **Nginx** | **1.24.x** (stable) | Nginx official apt repo | Ubuntu's default apt ships 1.18.x — too old. See §12.4 for install. |
-| **PM2** | **5.x** (latest 5.3.x+) | `npm install -g pm2` | Process manager: auto-restart, log rotation, systemd integration. |
-| **Certbot** | **2.x** | `snap install --classic certbot` | Manages free Let's Encrypt TLS certificates. Auto-renews every 90 days. |
-| **SQLite CLI** | **3.37.x** | `apt install sqlite3` | Ships with Ubuntu 22.04. Only needed for manual DB inspection — the app uses its own bundled SQLite via `better-sqlite3`. |
+| **Ubuntu** | **22.04.5 LTS** (Jammy) | DigitalOcean droplet image | Support until April 2027. **Deployed: 22.04.5** |
+| **Nginx** | **1.30.2** (stable) | Nginx official apt repo | Ubuntu's default apt ships 1.18.x — always use the official Nginx repo. **Deployed: 1.30.2** |
+| **PM2** | **7.0.1** | `npm install -g pm2` | Process manager: auto-restart, log rotation, systemd integration. **Deployed: 7.0.1** |
+| **Certbot** | **5.6.0** | `snap install --classic certbot` | Manages free Let's Encrypt TLS certificates. Auto-renews every 90 days. **Deployed: 5.6.0** |
+| **SQLite CLI** | **3.37.2** | `apt install sqlite3` | Ships with Ubuntu 22.04. Only needed for manual DB inspection. **Deployed: 3.37.2** |
 
 ---
 
@@ -1034,6 +1036,8 @@ Or simply close the terminal — PowerShell environment variables don't persist 
 | OS image | **Ubuntu 22.04 LTS (x64)** | Jammy Jellyfish; LTS support until April 2027 |
 | Backups | **Enabled** (≈$2/month) | Automated weekly snapshots stored by DigitalOcean |
 | SSH key | **Required** | Add your public key at droplet creation; password auth disabled post-setup |
+| **Droplet name** | **rental-server-syd** | Deployed June 2026 |
+| **IP address** | **209.38.29.102** | Current production IP — update if droplet is rebuilt |
 
 ### 12.2 Estimated Monthly Cost
 
@@ -2078,6 +2082,7 @@ Status key: ✅ Delivered · ⚠️ Outstanding
 | `DEVELOPER_ENVIRONMENTS.md` | ✅ | Full environment guide with exact versions |
 | `Special_Need_Vehicle_Rental_Architecture_and_Developer_Guide.md` | ✅ | Architecture guide updated to reflect actual implementation (v1.1.0) |
 | `COMPLETE_DEVELOPER_GUIDE.md` | ✅ | This file — single merged reference document |
+| `PRODUCTION.md` | ✅ | Production server quick-reference (IP, URLs, SSH, deploy commands, next steps) |
 | `.vscode/tasks.json` | ✅ | VS Code click-to-run tasks (setup, dev servers, build, DB tools) |
 | `.vscode/launch.json` | ✅ | VS Code debug configurations (API, migration, seed, attach) |
 | `.vscode/extensions.json` | ✅ | Recommended extensions (Remote-SSH, SQLite viewer, Tailwind, etc.) |
