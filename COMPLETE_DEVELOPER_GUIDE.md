@@ -1,7 +1,7 @@
 # Special Need Vehicle Rental
 ## Complete Developer Guide
 
-**Version:** 1.1.0 (updated with production deployment)
+**Version:** 1.2.0 (updated with employee booking codes feature)
 **Last Updated:** June 2026
 **Business:** SwiftRide Rentals Pty Ltd — 483 Hume Highway, Yagoona NSW 2199
 **Jurisdiction:** New South Wales, Australia
@@ -22,7 +22,7 @@
 4. [Data Model](#4-data-model)
 5. [API Specification](#5-api-specification)
 6. [Frontend Architecture](#6-frontend-architecture)
-7. [Payment Form — Phase 1 MVP](#7-payment-form--phase-1-mvp)
+7. [Payment Integration — Stripe & Employee Codes](#7-payment-integration--stripe--employee-codes)
 8. [Security & Compliance](#8-security--compliance)
 
 ### Part 2 — Developer Environments
@@ -224,10 +224,15 @@ These are the exact version specifiers from `frontend/package.json`.
 ### 4.1 Entity-Relationship Overview
 
 ```
-vehicles ────────┐
-                 │ 1:M
-                 ▼
-           reservations
+employees ───────────────────────┐
+                                 │ 1:M
+                                 ▼
+                          booking_codes ──────────┐
+                                                  │ M:1 (when used)
+vehicles ────────┐                                │
+                 │ 1:M                            │
+                 ▼                                ▼
+           reservations ◄──────────────────────────
                  │
           (customer data embedded — no separate customers table)
                  │
@@ -279,14 +284,14 @@ CREATE TABLE IF NOT EXISTS reservations (
   gst_cents           INTEGER NOT NULL DEFAULT 0,
   deposit_cents       INTEGER NOT NULL DEFAULT 0,
   payment_status      TEXT    NOT NULL DEFAULT 'none',
-                      -- 'none' | 'form_captured' | 'paid' | 'refunded'
-  payment_token       TEXT,             -- placeholder; replaced by gateway token in Phase 2
+                      -- 'none' | 'paid' | 'code_redeemed' | 'refunded'
+  payment_token       TEXT,             -- Stripe PaymentIntent.id (e.g. pi_3xxx); null for code bookings
 
-  -- Phase 1 payment form capture (stored directly; Phase 2 replaces with gateway token)
+  -- Phase 1 legacy columns — not written in Phase 2; retained for historical data integrity
   cardholder_name     TEXT,
-  card_last4          TEXT,             -- last 4 digits only; NEVER full card number
-  expiry_month        TEXT,             -- MM
-  expiry_year         TEXT,             -- YYYY
+  card_last4          TEXT,
+  expiry_month        TEXT,
+  expiry_year         TEXT,
 
   terms_accepted      INTEGER NOT NULL DEFAULT 0, -- boolean 0|1
   terms_accepted_at   TEXT,             -- ISO UTC timestamp (NSW Electronic Transactions Act 2000)
@@ -316,6 +321,39 @@ CREATE INDEX IF NOT EXISTS idx_res_status
 
 CREATE INDEX IF NOT EXISTS idx_res_email
   ON reservations(customer_email);
+
+-- ============================================================
+-- migrations/002_employees_and_codes.sql
+-- ============================================================
+
+-- Staff employee table
+CREATE TABLE IF NOT EXISTS employees (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  emp_id     TEXT    NOT NULL UNIQUE,
+  name       TEXT    NOT NULL,
+  email      TEXT    NOT NULL UNIQUE,
+  phone      TEXT,
+  status     TEXT    NOT NULL DEFAULT 'active',   -- 'active' | 'inactive'
+  created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT
+);
+
+-- One-time booking codes issued to employees (free hire, no payment required)
+CREATE TABLE IF NOT EXISTS booking_codes (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  code                 TEXT    NOT NULL UNIQUE,           -- 12 chars: 11 alphanumeric + 1 special
+  employee_id          INTEGER NOT NULL REFERENCES employees(id),
+  generated_by         TEXT    NOT NULL DEFAULT 'admin',  -- admin username
+  status               TEXT    NOT NULL DEFAULT 'active', -- 'active' | 'used' | 'expired' | 'disabled'
+  expires_at           TEXT    NOT NULL,                  -- ISO UTC, 24 hours after generation
+  used_at              TEXT,
+  used_reservation_id  INTEGER REFERENCES reservations(id),
+  created_at           TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_codes_code     ON booking_codes(code);
+CREATE INDEX IF NOT EXISTS idx_codes_employee ON booking_codes(employee_id);
+CREATE INDEX IF NOT EXISTS idx_codes_status   ON booking_codes(status);
 ```
 
 ### 4.3 Availability Overlap Logic
@@ -452,25 +490,42 @@ Customer self-cancellation within policy window.
 
 ---
 
-#### `POST /api/v1/payments/form`
+#### `POST /api/v1/payments/intent`
 
-Captures payment form fields for an existing `pending` reservation. **Phase 1 only — no payment gateway processing occurs.**
+Creates a Stripe PaymentIntent for an existing `pending` reservation. Called by the frontend when the customer selects "Pay by Card" and clicks "Continue to Card Payment".
 
 **Request body:**
 ```json
-{
-  "reservation_id": 42,
-  "cardholder_name": "Jane Smith",
-  "billing_email": "jane.smith@example.com",
-  "billing_phone": "+61412345678",
-  "card_last4": "4242",
-  "expiry_month": "12",
-  "expiry_year": "2028",
-  "amount_aud": "165.00"
-}
+{ "reservation_id": 42 }
 ```
 
-> **Security:** Raw card numbers are NEVER accepted or stored. The frontend must not transmit full card numbers to this endpoint. In Phase 1, staff confirm payment by phone call before vehicle handover.
+**Response 200:**
+```json
+{ "client_secret": "pi_3xxx_secret_xxx" }
+```
+
+The `client_secret` is passed to Stripe's `confirmPayment()` on the frontend. Card data never passes through the application server — it goes directly from the browser to Stripe.
+
+---
+
+#### `GET /api/v1/payments/verify`
+
+Called by the Confirmation page after Stripe redirects back to the site. Verifies PaymentIntent status with Stripe and updates the reservation's `payment_status` accordingly.
+
+**Query parameters:** `payment_intent` (Stripe PaymentIntent ID), `reservation_id`
+
+**Response 200:**
+```json
+{ "status": "succeeded", "reservation": { "id": 42, "payment_status": "paid", ... } }
+```
+
+---
+
+#### `POST /api/v1/payments/webhook`
+
+Stripe webhook endpoint. Receives signed events from Stripe for async payment confirmations. Verifies the Stripe signature using `STRIPE_WEBHOOK_SECRET` (skipped in development if the variable is unset). Updates `payment_status = 'paid'` on `payment_intent.succeeded` events.
+
+Register this URL in Stripe Dashboard → Developers → Webhooks. Events: `payment_intent.succeeded`, `payment_intent.payment_failed`.
 
 ---
 
@@ -504,6 +559,28 @@ All admin routes require a valid admin session obtained via `POST /api/v1/admin/
 | GET  | `/api/v1/admin/reports/csv` | Export reservations as CSV; accepts `from` and `to` ISO query params |
 | GET  | `/api/v1/admin/audit` | View audit log (last 500 entries, newest first) |
 
+### 5.3 Employee & Booking Code Endpoints (Admin Protected)
+
+| Method | Path | Description |
+|---|---|---|
+| GET    | `/api/v1/admin/employees` | List all employees |
+| POST   | `/api/v1/admin/employees` | Create employee (`emp_id`, `name`, `email`, `phone`) |
+| PATCH  | `/api/v1/admin/employees/:id` | Update employee details or status |
+| DELETE | `/api/v1/admin/employees/:id` | Deactivate employee (soft delete) |
+| POST   | `/api/v1/admin/employees/:id/generate-code` | Generate a booking code for employee — stores record and sends email |
+| GET    | `/api/v1/admin/employees/codes/all` | List all booking codes with employee info (auto-expires stale active codes) |
+| PATCH  | `/api/v1/admin/employees/codes/:id/disable` | Disable an active code immediately |
+
+### 5.4 Public Code Validation
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/codes/validate` | Validate a booking code without redeeming it — returns `{ valid, employee_name, expires_at }` |
+
+**Code format:** 12 characters — 11 uppercase alphanumeric + 1 special character (`!@#$%&*`) inserted at a random position. Example: `AB3C7KP!9MN2`
+
+**Using a code in a reservation:** Add `booking_code` field to `POST /api/v1/reservations`. If valid, the code is redeemed and the reservation is created with `status=confirmed` and `payment_status=code_redeemed` atomically. No Stripe PaymentIntent is created.
+
 ---
 
 ## 6. Frontend Architecture
@@ -517,8 +594,8 @@ All admin routes require a valid admin session obtained via `POST /api/v1/admin/
 /booking                 Multi-step booking form (query: vehicle_id, start, end)
   Step 1: Personal details (name, email, phone, intended use)
   Step 2: Terms & conditions acceptance (scrollable, timestamped checkbox)
-  Step 3: Payment details (card last-4 capture, Phase 1 only)
-/booking/confirmation    Confirmation + booking summary (via router state)
+  Step 3: Payment — choose Pay by Card (Stripe) or Employee Booking Code
+/booking/confirmation    Confirmation + booking summary; verifies Stripe PaymentIntent status
 /cancel/:id              Customer self-cancellation (email verification required)
 /privacy                 Privacy Policy (APP-compliant, NSW)
 /terms                   Terms & Conditions (NSW-specific, Electronic Transactions Act 2000)
@@ -528,6 +605,8 @@ All admin routes require a valid admin session obtained via `POST /api/v1/admin/
 /admin/reservations      Filterable reservations list
 /admin/reservations/:id  Reservation detail + inline status/payment/notes editor
 /admin/vehicles          Fleet list + add/edit/retire form
+/admin/employees         Employee list + add/edit/deactivate + generate booking codes
+/admin/codes             Booking code list + filter by status + disable codes
 /admin/reports           CSV export + audit log link
 ```
 
@@ -538,8 +617,8 @@ pages/
   Landing.jsx
   Availability.jsx
   VehicleDetail.jsx
-  Booking.jsx             (contains all 3 booking steps)
-  Confirmation.jsx
+  Booking.jsx             (contains all 3 booking steps; Step 3 = Card or Employee Code)
+  Confirmation.jsx        (verifies Stripe PaymentIntent via /payments/verify)
   Cancel.jsx
   Privacy.jsx
   Terms.jsx
@@ -549,12 +628,15 @@ pages/
     Reservations.jsx
     ReservationDetail.jsx
     Vehicles.jsx
+    Employees.jsx         (add/deactivate employees, generate booking codes)
+    BookingCodes.jsx      (list all codes, filter by status, disable active codes)
     Reports.jsx
 components/
   Header.jsx
   Footer.jsx
   VehicleCard.jsx
   BookingProgress.jsx
+  AdminNav.jsx            (shared navigation bar included on all admin pages)
   Alert.jsx               (AlertInfo, AlertWarning, AlertError, AlertSuccess)
 hooks/
   useAdminAuth.js         (polls /api/v1/admin/me to check session validity)
@@ -594,31 +676,55 @@ The application must conform to **WCAG 2.1 Level AA** as required by the Austral
 
 ---
 
-## 7. Payment Form — Phase 1 MVP
+## 7. Payment Integration — Stripe & Employee Codes
 
-### 7.1 Fields Captured
+The application supports two payment paths on Step 3 of the booking form.
 
-| Field | UI Label | Stored in DB? | Notes |
-|---|---|---|---|
-| `cardholder_name` | Name on card | Yes | Plain text |
-| `card_last4` | Card number (last 4 digits) | Yes | UI masks input; never transmits full number |
-| `expiry_month` | Expiry month | Yes | MM format |
-| `expiry_year` | Expiry year | Yes | YYYY format |
-| `billing_email` | Email address | Yes | Must match reservation email |
-| `billing_phone` | Phone number | Yes | Australian format |
-| `amount_aud` | Total amount (AUD, incl. GST) | Yes | Read-only, pre-filled from reservation |
-| `reservation_id` | — | Yes | Hidden field |
+### 7.1 Path A — Pay by Card (Stripe Phase 2)
 
-### 7.2 Phase 1 Behaviour
+The customer selects "Pay by Card" and clicks "Continue to Card Payment". The flow:
 
-1. Backend stores the last-4 and cardholder name; sets `payment_status = 'form_captured'`
-2. Staff are alerted via email to call the customer and confirm payment manually (EFT, credit card over phone, or in person)
-3. Confirmation page states clearly: *"Your booking is held pending payment confirmation. Our staff will contact you within 2 business hours to finalise payment."*
-4. Staff then update `payment_status` to `'paid'` in the admin dashboard after payment is confirmed
+1. **Frontend** calls `POST /api/v1/payments/intent` with the `reservation_id`
+2. **Backend** creates a Stripe `PaymentIntent` (server-side, using `STRIPE_SECRET_KEY`) and returns the `client_secret`
+3. **Frontend** renders the **Stripe Payment Element** using the `client_secret` — the customer sees card fields, Apple Pay, and Google Pay (if supported by their browser)
+4. Customer clicks **"Pay $X.XX AUD"** — card data goes **directly from the browser to Stripe** using `stripe.confirmPayment()`. It never touches the application server.
+5. Stripe redirects the browser back to `/booking/confirmation?payment_intent=pi_xxx&reservation_id=42`
+6. **Confirmation page** calls `GET /api/v1/payments/verify?payment_intent=pi_xxx&reservation_id=42`
+7. **Backend** verifies the PaymentIntent status with Stripe and sets `payment_status = 'paid'`
+8. Confirmation page shows "Booking Confirmed — Payment received" in green
 
-### 7.3 Phase 2 Gateway Upgrade Path
+**Stripe webhook** (`POST /api/v1/payments/webhook`) provides a backup confirmation path for async events. Register it in Stripe Dashboard with events `payment_intent.succeeded` and `payment_intent.payment_failed`. The `STRIPE_WEBHOOK_SECRET` environment variable enables signature verification.
 
-Replace the form endpoint with a **Stripe Payment Element** (or Tyro / eWAY / Braintree for Australian-first options). The `payment_token` column is already present in the schema — it stores the Stripe `PaymentIntent.id` in Phase 2. No card data ever passes through the application server in Phase 2, taking it out of PCI scope entirely.
+**Current status:** Live on HTTPS at swiftriderentals.com.au with **test keys** (`sk_test_...` / `pk_test_...`). Switch to live keys before accepting real payments — see `PRODUCTION.md`.
+
+### 7.2 Path B — Employee Booking Code (no payment)
+
+The customer selects "Employee Code" and enters their 12-character code. The flow:
+
+1. As the user types, the frontend validates the code via `POST /api/v1/codes/validate` (non-destructive — does not redeem the code)
+2. Customer clicks **"Complete Booking with Code"**
+3. Backend creates the reservation and marks the code as used in a **single atomic `BEGIN IMMEDIATE TRANSACTION`** — prevents any race condition where two bookings could attempt to use the same code
+4. On success: reservation is created with `status = 'confirmed'` and `payment_status = 'code_redeemed'`
+5. Customer is taken directly to the Confirmation page — no Stripe involved
+
+If the code is invalid, expired, already used, or disabled, a specific error message is shown inline.
+
+### 7.3 DB Payment Fields
+
+| Column | Phase | Notes |
+|---|---|---|
+| `payment_token` | Phase 2 | Stores the Stripe `PaymentIntent.id` (e.g. `pi_3xxx`) |
+| `payment_status` | Both | `none` → `paid` (card) or `code_redeemed` (code) |
+| `cardholder_name` | Phase 1 legacy | No longer populated in Phase 2; kept for historical records |
+| `card_last4` | Phase 1 legacy | No longer populated in Phase 2; kept for historical records |
+| `expiry_month` | Phase 1 legacy | No longer populated in Phase 2; kept for historical records |
+| `expiry_year` | Phase 1 legacy | No longer populated in Phase 2; kept for historical records |
+
+> The Phase 1 card-capture columns are retained in the schema for data integrity on any records created prior to the Phase 2 launch. They are not written to in the current codebase.
+
+### 7.4 PCI Scope
+
+In the current Stripe Phase 2 implementation, the application server is **entirely out of PCI scope**. Card numbers, CVCs, and expiry dates never pass through the Node.js process — they go directly from the customer's browser to Stripe's servers. Only the Stripe `PaymentIntent.id` is stored. This is the safest possible integration model.
 
 ---
 
@@ -680,9 +786,11 @@ add_header Content-Security-Policy
 
 ### 8.6 PCI DSS Considerations
 
-- **Phase 1:** Raw card numbers never accepted, transmitted, or logged. Only last-4 digits stored. Document that this is a temporary arrangement pending gateway integration.
-- **Phase 2:** Use a PCI-validated gateway's hosted fields (Stripe Payment Element, Tyro, eWAY). Application server is entirely out of PCI scope — card data goes directly from the browser to the gateway.
-- **At all phases:** Never log card numbers. The Pino log configuration explicitly excludes payment fields from request body logging.
+The application uses **Stripe Phase 2** (Stripe Payment Element). The application server is entirely out of PCI scope — card data goes directly from the customer's browser to Stripe, never touching the Node.js process. Only the Stripe `PaymentIntent.id` is stored in the database.
+
+- Never log card numbers. The Pino log configuration explicitly excludes payment fields from request body logging.
+- The legacy `card_last4` / `cardholder_name` columns in `reservations` are Phase 1 artefacts — not written to in the current codebase.
+- Employee booking codes bypass Stripe entirely; no card data is involved in that path.
 
 ---
 
@@ -1657,10 +1765,11 @@ The `tests/` directory has not yet been created. Jest is configured in `package.
 | Trigger | Recipient | Purpose |
 |---|---|---|
 | New reservation created | Customer | Booking confirmation with reference number, dates, price, cancellation link |
-| New reservation created | Facility staff (`FACILITY_EMAIL`) | Alert to call customer for manual payment confirmation |
+| New reservation created | Facility staff (`FACILITY_EMAIL`) | Alert that a paid booking has been confirmed — vehicle preparation required |
+| New booking code generated | Employee | Email containing the 12-character booking code and expiry time |
 | Reservation cancelled | Customer | Cancellation confirmation with reference number |
 
-In Phase 1, the staff alert email is the mechanism that triggers payment collection. If SMTP is not configured, staff must monitor the admin dashboard for new `pending` reservations manually.
+With Stripe Phase 2, payment is received automatically before the staff alert is sent. If SMTP is not configured, staff must monitor the admin dashboard for new `confirmed` reservations manually.
 
 ### 15.2 Recommended: Mailgun (Australian-Friendly)
 
@@ -2090,6 +2199,12 @@ Status key: ✅ Delivered · ⚠️ Outstanding
 | `.vscode/launch.json` | ✅ | VS Code debug configurations (API, migration, seed, attach) |
 | `.vscode/extensions.json` | ✅ | Recommended extensions (Remote-SSH, SQLite viewer, Tailwind, etc.) |
 | `ssh-config.example` | ✅ | Remote-SSH template for connecting VS Code to DigitalOcean |
+| `migrations/002_employees_and_codes.sql` | ✅ | Employees + booking_codes tables with indexes |
+| `src/routes/employees.js` | ✅ | Admin CRUD for employees + code generation + list/disable codes |
+| `src/routes/codes.js` | ✅ | Public code validation endpoint |
+| `frontend/src/pages/admin/Employees.jsx` | ✅ | Admin employee management page |
+| `frontend/src/pages/admin/BookingCodes.jsx` | ✅ | Admin booking codes page — filter by status, disable codes |
+| `frontend/src/components/AdminNav.jsx` | ✅ | Shared admin navigation bar across all protected admin pages |
 | `openapi.yaml` | ⚠️ | Not yet created — generate from `src/routes/` using `swagger-jsdoc` or write from §5 |
 | `postman_collection.json` | ⚠️ | Not yet created — import `openapi.yaml` into Postman to auto-generate |
 | `tests/` directory | ⚠️ | Not yet created — see §14 for strategy; Jest is configured and ready |
@@ -2108,4 +2223,4 @@ Status key: ✅ Delivered · ⚠️ Outstanding
 
 *This is a living document. Update the version number and date when material changes are made to the codebase or infrastructure.*
 
-*Generated: June 2026 | Application version: 1.0.0 | NSW, Australia*
+*Generated: June 2026 | Application version: 1.2.0 | NSW, Australia*

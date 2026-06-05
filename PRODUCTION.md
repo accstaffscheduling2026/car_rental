@@ -15,6 +15,11 @@
 | Public booking site | https://swiftriderentals.com.au |
 | Public booking site (www) | https://www.swiftriderentals.com.au |
 | Admin dashboard | https://swiftriderentals.com.au/admin |
+| Admin — Employees | https://swiftriderentals.com.au/admin/employees |
+| Admin — Booking Codes | https://swiftriderentals.com.au/admin/codes |
+| Admin — Reservations | https://swiftriderentals.com.au/admin/reservations |
+| Admin — Vehicles | https://swiftriderentals.com.au/admin/vehicles |
+| Admin — Reports | https://swiftriderentals.com.au/admin/reports |
 | API health check | https://swiftriderentals.com.au/api/v1/health |
 
 All traffic is HTTPS. HTTP requests automatically redirect to HTTPS via Nginx.
@@ -218,4 +223,4 @@ pm2 reload rental-api
 
 ---
 
-*Last updated: June 2026 — HTTPS live on swiftriderentals.com.au*
+*Last updated: June 2026 — HTTPS live; employee management and booking codes feature added*

@@ -1,7 +1,7 @@
 # SwiftRide Rentals — Management Overview
 ## Special Need Vehicle Rental Platform
 
-**Prepared:** June 2026
+**Prepared:** June 2026 (updated with employee booking codes feature)
 **Business:** SwiftRide Rentals Pty Ltd
 **Address:** 483 Hume Highway, Yagoona NSW 2199
 **Phone:** 0434 620 086
@@ -43,6 +43,9 @@ The facility operates a fleet of 100 vehicles — wheelchair-accessible vans, pe
 - Manage the vehicle fleet — add vehicles, set maintenance windows
 - Export booking and revenue reports as CSV
 - Full audit trail of all actions
+- **Employee management** — add staff to the system with their ID, name, email and phone
+- **Generate booking codes** — issue a one-time code to any employee so they can book a vehicle at no charge; code is emailed instantly and expires in 24 hours
+- **Manage codes** — view all codes (active, used, expired, disabled) and disable any active code at any time
 
 ### What It Does Automatically
 - Prevents double-bookings — no two customers can book the same vehicle at the same time
@@ -167,7 +170,47 @@ The payment flow using Stripe:
 
 ---
 
-## 9. Booking Management — Staff Workflow
+## 9. Employee Booking Codes
+
+Staff members can be issued a one-time booking code that allows them to hire a vehicle without making a payment. This is useful for staff benefits, community hire, or facility-approved bookings.
+
+### How It Works
+
+**Admin side (staff management panel):**
+1. Go to Admin → **Employees** and add the staff member (Employee ID, name, email, phone)
+2. Click **Generate Code** next to the employee
+3. A unique 12-character code is generated instantly and emailed to the employee
+4. The code appears on screen for the admin to note as well
+5. Admin can **Disable** any code at any time from Admin → **Booking Codes**
+
+**Employee side (booking website):**
+1. Employee searches for an available vehicle and selects their dates
+2. Completes Steps 1 (personal details) and 2 (terms agreement) as normal
+3. On the Payment step, selects **"Employee Code"** instead of "Pay by Card"
+4. Enters their 12-character code
+5. Clicks "Complete Booking with Code" — booking is confirmed immediately, no card required
+
+### Code Properties
+
+| Property | Detail |
+|---|---|
+| Format | 12 characters — 11 alphanumeric + 1 special character (e.g. `AB3C7KP!9MN2`) |
+| Expiry | 24 hours from generation |
+| Usage | Single use only — cannot be reused after redemption |
+| Status tracking | active → used (or expired / disabled) |
+| Delivery | Emailed to employee automatically when generated |
+| Admin control | Can be disabled at any time before it is used |
+
+### Admin Pages
+
+| Page | URL | Purpose |
+|---|---|---|
+| Employees | `/admin/employees` | Add employees, generate codes, deactivate staff |
+| Booking Codes | `/admin/codes` | View all codes, filter by status, disable active codes |
+
+---
+
+## 10. Booking Management — Staff Workflow
 
 ### When a Customer Books
 1. Customer receives automatic email confirmation
@@ -192,15 +235,16 @@ The payment flow using Stripe:
 
 ---
 
-## 10. What Comes Next
+## 11. What Comes Next
 
 ### Immediate (before public launch)
 - [ ] **Legal review** — Privacy Policy and Terms & Conditions reviewed by a NSW solicitor
 - [ ] **Stripe live keys** — Switch from test mode to live; complete a $1 test transaction
 - [ ] **Stripe webhook** — Register `https://swiftriderentals.com.au/api/v1/payments/webhook` in Stripe Dashboard
-- [ ] **Email setup** — Configure Mailgun SMTP so confirmation emails are sent to customers
+- [ ] **Email setup** — Configure Mailgun SMTP so confirmation emails and booking codes are sent automatically
 - [ ] **Admin password** — Change temporary password to a permanent one
 - [ ] **Vehicle photos** — Add real photos for each vehicle in the admin dashboard
+- [ ] **Add employees** — Register all staff in Admin → Employees before generating any codes
 
 ### Short Term
 - [ ] **Uptime monitoring** — Set up UptimeRobot to alert staff if the site goes down
@@ -218,7 +262,7 @@ The payment flow using Stripe:
 
 ---
 
-## 11. Source Code & Documentation
+## 12. Source Code & Documentation
 
 | Document | Purpose |
 |---|---|
@@ -233,7 +277,7 @@ All source code, configuration, and documentation is version-controlled. Secrets
 
 ---
 
-## 12. Key Contacts & Access
+## 13. Key Contacts & Access
 
 | Role | Detail |
 |---|---|
