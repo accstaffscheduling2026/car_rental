@@ -6,7 +6,8 @@
 **Business:** SwiftRide Rentals Pty Ltd — 483 Hume Highway, Yagoona NSW 2199
 **Jurisdiction:** New South Wales, Australia
 **Audience:** Software developers, DevOps engineers, technical leads, and business owners overseeing a developer handoff
-**Production server:** `209.38.29.102` (DigitalOcean SYD1) — see `PRODUCTION.md` for full operational reference
+**Production server:** `209.38.29.102` (DigitalOcean SYD1)
+**Live URL:** https://swiftriderentals.com.au — see `PRODUCTION.md` for full operational reference
 
 > **What this document is:** A single, self-contained reference that merges the Application Architecture & Developer Guide (v1.1.0) with the Developer Environment Guide (v1.0.0) into one downloadable file. Every section from both source documents is present here. You do not need to consult the other documents.
 
@@ -1038,6 +1039,8 @@ Or simply close the terminal — PowerShell environment variables don't persist 
 | SSH key | **Required** | Add your public key at droplet creation; password auth disabled post-setup |
 | **Droplet name** | **rental-server-syd** | Deployed June 2026 |
 | **IP address** | **209.38.29.102** | Current production IP — update if droplet is rebuilt |
+| **Domain** | **swiftriderentals.com.au** | Registered VentraIP — DNS A records point to droplet IP |
+| **HTTPS** | **Live** | Let's Encrypt cert issued June 2026, expires 3 Sep 2026, auto-renews |
 
 ### 12.2 Estimated Monthly Cost
 

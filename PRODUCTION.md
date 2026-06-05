@@ -12,11 +12,44 @@
 
 | Page | URL |
 |---|---|
-| Public booking site | http://209.38.29.102 *(HTTP only until domain + SSL set up)* |
-| Admin dashboard | http://209.38.29.102/admin |
-| API health check | http://209.38.29.102/api/v1/health |
+| Public booking site | https://swiftriderentals.com.au |
+| Public booking site (www) | https://www.swiftriderentals.com.au |
+| Admin dashboard | https://swiftriderentals.com.au/admin |
+| API health check | https://swiftriderentals.com.au/api/v1/health |
 
-> Once a domain is pointed at this server and SSL is configured, all URLs become `https://yourdomain.com.au`
+All traffic is HTTPS. HTTP requests automatically redirect to HTTPS via Nginx.
+
+---
+
+## Domain Names
+
+| Domain | Registrar | Status | Purpose |
+|---|---|---|---|
+| `swiftriderentals.com.au` | VentraIP | Active — primary | Main production domain |
+| `swiftriderentals.online` | VentraIP | Active — reserve | Backup / alternative |
+
+**DNS A records (both point to the server):**
+
+| Record | Value |
+|---|---|
+| `swiftriderentals.com.au` | `209.38.29.102` |
+| `www.swiftriderentals.com.au` | `209.38.29.102` |
+
+**DNS managed at:** https://vip.ventraip.com.au → Domains → swiftriderentals.com.au → DNS
+
+---
+
+## SSL Certificate (HTTPS)
+
+| Setting | Value |
+|---|---|
+| Provider | Let's Encrypt (free, auto-renewing) |
+| Issued | June 2026 |
+| Expires | 3 September 2026 |
+| Auto-renewal | Certbot systemd timer — renews automatically every 90 days |
+| Certificate path | `/etc/letsencrypt/live/swiftriderentals.com.au/fullchain.pem` |
+
+To manually test renewal: `certbot renew --dry-run`
 
 ---
 
@@ -24,15 +57,17 @@
 
 | Field | Value |
 |---|---|
+| URL | https://swiftriderentals.com.au/admin |
 | Username | `admin` |
 | Password | *(stored securely — ask the developer if you need a reset)* |
 
 To reset the admin password, SSH into the server and run:
 ```bash
 cd /var/www/rental
-node -e "require('bcrypt').hash('YOUR_NEW_PASSWORD', 12).then(h => console.log(h));"
+node -e "require('./node_modules/bcrypt').hash('YOUR_NEW_PASSWORD', 12).then(h => console.log(h));"
+# Copy the output into /var/www/rental/.env as ADMIN_PASSWORD_HASH=
+# Then: pm2 reload rental-api
 ```
-Copy the output into `/var/www/rental/.env` as `ADMIN_PASSWORD_HASH=` then run `pm2 reload rental-api`.
 
 ---
 
@@ -46,7 +81,7 @@ Copy the output into `/var/www/rental/.env` as `ADMIN_PASSWORD_HASH=` then run `
 | IP address | 209.38.29.102 |
 | OS | Ubuntu 22.04.5 LTS (Jammy Jellyfish) |
 | Plan | Basic — 1 vCPU / 1 GB RAM / 25 GB SSD |
-| Monthly cost | ~AUD $10 + $2 backups = ~$12/month |
+| Monthly cost | ~AUD $10 droplet + $2 backups + $2 domain = ~$14/month |
 
 ## Installed Software Versions
 
@@ -70,11 +105,13 @@ Copy the output into `/var/www/rental/.env` as `ADMIN_PASSWORD_HASH=` then run `
 | Application code | `/var/www/rental/` |
 | SQLite database | `/var/www/rental/data/rental.sqlite` |
 | Environment variables | `/var/www/rental/.env` |
+| Frontend Stripe key | `/var/www/rental/frontend/.env` |
 | Frontend build | `/var/www/rental/frontend/dist/` |
 | App logs (PM2) | `/var/log/rental/out.log` and `error.log` |
 | Nginx access log | `/var/log/nginx/rental_access.log` |
 | Nginx error log | `/var/log/nginx/rental_error.log` |
 | Nginx site config | `/etc/nginx/conf.d/rental.conf` |
+| SSL certificate | `/etc/letsencrypt/live/swiftriderentals.com.au/` |
 
 ---
 
@@ -85,7 +122,8 @@ Copy the output into `/var/www/rental/.env` as `ADMIN_PASSWORD_HASH=` then run `
 ssh -i "$env:USERPROFILE\.ssh\id_ed25519" root@209.38.29.102
 ```
 
-SSH key is stored at: `C:\Users\DueDiligence\.ssh\id_ed25519`
+SSH private key location: `C:\Users\DueDiligence\.ssh\id_ed25519`
+SSH public key location: `C:\Users\DueDiligence\.ssh\id_ed25519.pub`
 
 ---
 
@@ -98,17 +136,26 @@ pm2 status
 # View live app logs
 pm2 logs rental-api
 
-# Restart the app
+# Reload app after code change
 pm2 reload rental-api
 
-# Check health
-curl http://localhost:8080/api/v1/health
+# Check health endpoint
+curl https://swiftriderentals.com.au/api/v1/health
 
 # View last 50 lines of error log
 pm2 logs rental-api --lines 50 --err
 
 # Check Nginx status
 systemctl status nginx
+
+# Reload Nginx after config change
+systemctl reload nginx
+
+# Check SSL certificate status
+certbot certificates
+
+# Test SSL renewal (dry run — does not actually renew)
+certbot renew --dry-run
 ```
 
 ---
@@ -128,36 +175,47 @@ npm run migrate
 pm2 reload rental-api
 ```
 
+> `pm2 reload` performs a graceful reload with zero downtime — in-flight requests complete before the process is replaced.
+
 ---
 
 ## Payment (Stripe)
 
 | Setting | Value |
 |---|---|
-| Mode | Test (no real charges) |
+| Mode | **Test** (no real charges until switched to live keys) |
 | Secret key location | `/var/www/rental/.env` → `STRIPE_SECRET_KEY` |
 | Publishable key location | `/var/www/rental/frontend/.env` → `VITE_STRIPE_PUBLISHABLE_KEY` |
-| Webhook secret | Not yet configured |
+| Webhook endpoint | `https://swiftriderentals.com.au/api/v1/payments/webhook` |
+| Webhook secret | Not yet configured — see next steps |
 | Test card (success) | `4242 4242 4242 4242` — expiry `12/28` — CVC `123` |
 | Test card (decline) | `4000 0000 0000 0002` |
 
-> **Before accepting real customer payments:** Switch both keys to live (`sk_live_...` / `pk_live_...`), register the webhook endpoint in Stripe Dashboard, rebuild the frontend, and reload the app.
+**To switch to live payments:**
+1. Stripe Dashboard → Developers → API keys → copy live keys
+2. Update `STRIPE_SECRET_KEY` in `/var/www/rental/.env`
+3. Update `VITE_STRIPE_PUBLISHABLE_KEY` in `/var/www/rental/frontend/.env`
+4. Stripe Dashboard → Developers → Webhooks → Add endpoint: `https://swiftriderentals.com.au/api/v1/payments/webhook` → events: `payment_intent.succeeded`, `payment_intent.payment_failed`
+5. Copy webhook signing secret → update `STRIPE_WEBHOOK_SECRET` in `/var/www/rental/.env`
+6. Rebuild frontend and reload: `cd frontend && npm ci && npm run build && cd .. && pm2 reload rental-api`
 
 ---
 
 ## Next Steps
 
-- [ ] Purchase domain name (recommended: VentraIP — `swiftriderentals.com.au`)
-- [ ] Point domain DNS A record to `209.38.29.102`
-- [ ] Run Certbot to get free HTTPS certificate
-- [ ] Update `BASE_URL` and `CORS_ORIGIN` in `/var/www/rental/.env` to use the domain
-- [ ] Switch Stripe keys to live keys
+- [x] Purchase domain — `swiftriderentals.com.au` and `swiftriderentals.online` (VentraIP)
+- [x] Point DNS A records to `209.38.29.102`
+- [x] SSL certificate obtained via Let's Encrypt (Certbot)
+- [x] HTTPS live on `https://swiftriderentals.com.au`
+- [ ] Switch Stripe keys to live keys before accepting real payments
 - [ ] Set `STRIPE_WEBHOOK_SECRET` after registering webhook in Stripe Dashboard
-- [ ] Set up SMTP email (Mailgun recommended) and update `SMTP_*` vars in `.env`
-- [ ] Set up UptimeRobot monitoring on `https://yourdomain.com.au/api/v1/health`
-- [ ] Configure daily database backup cron job
-- [ ] Change admin password from the temporary one
+- [ ] Set up SMTP email — Mailgun recommended (update `SMTP_*` vars in `/var/www/rental/.env`)
+- [ ] Set up UptimeRobot free monitoring on `https://swiftriderentals.com.au/api/v1/health`
+- [ ] Configure daily database backup cron job (see COMPLETE_DEVELOPER_GUIDE.md §18)
+- [ ] Change admin password from temporary one
+- [ ] Enable auto-renew on `swiftriderentals.online` in VentraIP dashboard
+- [ ] Legal review of Privacy Policy and Terms & Conditions before public launch
 
 ---
 
-*Last updated: June 2026*
+*Last updated: June 2026 — HTTPS live on swiftriderentals.com.au*
