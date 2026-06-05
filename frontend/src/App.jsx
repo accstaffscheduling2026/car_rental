@@ -1,5 +1,8 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+
+// Import once at app startup so Stripe.js begins loading immediately
+import './utils/stripe.js';
 import Header from './components/Header.jsx';
 import Footer from './components/Footer.jsx';
 import Landing from './pages/Landing.jsx';

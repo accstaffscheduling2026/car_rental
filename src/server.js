@@ -35,7 +35,12 @@ app.use(cors({
   credentials: true,
 }));
 
-// ---------- Body parsing ----------
+// ---------- Stripe webhook — MUST be before express.json() ----------
+// Stripe signature verification requires the raw unparsed request body.
+// express.json() would parse it into an object first, breaking the signature check.
+app.post('/api/v1/payments/webhook', express.raw({ type: 'application/json' }), require('./routes/webhook'));
+
+// ---------- Body parsing (all other routes) ----------
 app.use(express.json({ limit: '100kb' }));
 
 // ---------- Session (admin only) ----------

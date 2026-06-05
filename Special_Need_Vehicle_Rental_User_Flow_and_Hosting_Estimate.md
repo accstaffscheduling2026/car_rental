@@ -1,8 +1,8 @@
 # Special Need Vehicle Rental
 ## User Flow Guide & Hosting Estimate
 
-**Version:** 1.0.0
-**Last Updated:** June 2026
+**Version:** 1.1.0
+**Last Updated:** June 2026 (updated to reflect Stripe payment integration)
 **Jurisdiction:** New South Wales, Australia
 **Audience:** Product owner, UX designers, developers, operations staff
 
@@ -22,6 +22,7 @@
 10. [Cloud Hosting Cost Estimate](#10-cloud-hosting-cost-estimate)
 11. [Deployment Checklist](#11-deployment-checklist)
 12. [Operational Launch Checklist](#12-operational-launch-checklist)
+13. [Payment Testing Guide (Stripe)](#13-payment-testing-guide-stripe)
 
 ---
 
@@ -106,37 +107,41 @@ Facility Production Website
 └─────────────┬───────────────┘
               │
               ▼
+              │
+    [On "Next: Payment" click]
+    → POST /reservations (locks vehicle)
+    → POST /payments/intent (creates Stripe PaymentIntent)
+              │
+              ▼
 ┌─────────────────────────────┐
 │    BOOKING FORM — Step 3    │  ← Step 5c
-│  Payment Details (Form)     │
-│  • Name on card             │
-│  • Card number (last 4)     │
-│  • Expiry month & year      │
-│  • Billing email & phone    │
-│  • Amount (prefilled, AUD,  │
-│    GST-inclusive)           │
-│  • Payment notice banner    │
+│  Stripe Payment Element     │
+│  • Card number (via Stripe) │
+│  • Expiry & CVC (Stripe)    │
+│  • Apple Pay / Google Pay   │
+│  • Amount shown (AUD, GST)  │
+│  • "Pay $XXX.XX AUD" button │
+│  • Secured by Stripe badge  │
 └─────────────┬───────────────┘
               │
-         [Submit booking]
+    [stripe.confirmPayment()]
+    Card data → Stripe servers only
+    (never touches our server)
               │
-       ┌──────┴──────┐
-       │             │
-  [Available]   [No longer
-       │         available]
-       │             │
-       ▼             ▼
-┌────────────┐  ┌────────────────────┐
-│CONFIRMATION│  │ CONFLICT ERROR     │
-│  PAGE      │  │ "This vehicle is   │
-│            │  │ no longer          │
-│ Booking ID │  │ available. Please  │
-│ Summary    │  │ choose another     │
-│ Pickup     │  │ vehicle or time."  │
-│ contact    │  │ [Back to results]  │
-│            │  └────────────────────┘
-│ Email sent │
-└────────────┘
+    [Stripe redirects back to site]
+              │
+              ▼
+┌─────────────────────────────┐
+│  CONFIRMATION PAGE          │
+│  (verifies payment)         │
+│  → GET /payments/verify     │
+│                             │
+│  ┌───────────┐ ┌──────────┐ │
+│  │ PAID ✓   │ │ FAILED ✗ │ │
+│  │ Booking  │ │ No charge│ │
+│  │ confirmed│ │ Try again│ │
+│  └───────────┘ └──────────┘ │
+└─────────────────────────────┘
 ```
 
 ---
@@ -256,42 +261,56 @@ Sections:
 
 ---
 
-#### Step 5c — Payment Form (Booking Form, Step 3 of 3)
+#### Step 5c — Payment (Booking Form, Step 3 of 3)
 
-**User provides payment details (Phase 1: form capture only).**
+**User pays via Stripe — card data never reaches the application server.**
 
-A clearly visible notice banner appears at the top of this step:
+When the user clicks "Next: Payment" at the end of Step 2, two things happen automatically in the background:
+1. The reservation is created in the database (the vehicle is locked for this customer)
+2. A Stripe PaymentIntent is created and the Stripe Payment Element loads
 
-> **Payment Notice:** This form captures your payment details for staff to process. Your booking is held pending payment confirmation. Our staff will contact you within 2 business hours by phone or email to confirm payment. Your booking is not confirmed until payment is finalised.
+The user sees:
 
-| Field | Type | Notes |
-|---|---|---|
-| Name on card | Text | Required |
-| Card number | Tel (masked) | Last 4 digits shown; full number masked by UI |
-| Expiry month | Select | MM |
-| Expiry year | Select | YYYY |
-| Billing email | Email | Pre-filled from Step 1; editable |
-| Billing phone | Tel | Pre-filled from Step 1; editable |
-| Amount | Read-only text | Pre-filled from booking total (AUD, incl. GST) |
+| UI Element | Behaviour |
+|---|---|
+| Amount summary bar | Total (AUD, GST-inclusive) and GST component shown — read-only |
+| Stripe Payment Element | Stripe's hosted card input — renders credit/debit card fields, and Apple Pay / Google Pay if the browser supports them |
+| "Pay $X.XX AUD" button | Disabled until Stripe Element is ready and loaded |
+| Security badge | "Secured by Stripe. Your card details are never stored on our servers." |
+| Back button | Cancels the reservation and returns to Step 2 so the vehicle is freed up |
 
-**Submit button:** "Submit Booking & Payment Details"
+**What happens when the user clicks Pay:**
+1. `stripe.confirmPayment()` is called — card details go directly from the browser to Stripe's servers
+2. Stripe processes the payment
+3. On success: Stripe redirects the browser to the Confirmation page with a `payment_intent` parameter in the URL
+4. On failure: an error message appears inline (e.g. "Your card was declined. Please try a different card.")
 
-**Security note:** The full card number is never transmitted to or stored by the server. The backend receives only the last 4 digits and other non-sensitive metadata.
+**Security:** The application server never receives or stores card numbers, CVCs, or full expiry dates at any point. The only thing stored in the database is the Stripe `PaymentIntent` ID (e.g. `pi_3abc123...`) in the `payment_token` column. This keeps the application fully out of PCI scope.
 
 ---
 
 #### Confirmation Page
 
-**Booking submitted successfully.**
+**Payment verified — booking confirmed.**
 
-Displayed information:
+After Stripe redirects back to the site, the confirmation page calls the backend to verify the payment status with Stripe. The page displays differently depending on the payment outcome:
+
+**Payment succeeded (normal case):**
+- Green checkmark icon and "Booking Confirmed!" heading
+- "Payment received" success banner
 - Booking reference number (e.g., `SNVR-20260615-042`)
-- Booking summary: vehicle, dates, total price
+- Booking summary: vehicle, dates, total paid (AUD, GST breakdown)
+- Payment status: **Paid** (shown in green)
 - Pickup address and instructions
-- Staff contact phone number and email
-- Next steps: *"Our staff will call you within 2 business hours to confirm your payment and finalise your booking."*
-- Cancellation information: *"To cancel, use the link in your confirmation email or call us."*
-- "Return to [Facility Website]" button
+- Next steps: bring driver's licence, sign hire agreement on arrival
+- Cancel booking link (for change of plans)
+- "Return to Home" button
+
+**Payment failed:**
+- Red X icon and "Payment Not Completed" heading
+- "No charge has been made" confirmation
+- "Try Again" button → returns to availability search
+- Staff phone number for manual assistance
 
 ---
 
@@ -400,7 +419,9 @@ Customer A              Customer B
 **User experience for Customer B:**
 - Friendly error message: *"We're sorry — this vehicle was just booked by another customer. Please choose a different vehicle or time."*
 - Suggestions displayed: "Other available vehicles for your time" / "Next available slot for this vehicle"
-- Customer is NOT charged (no payment token recorded on failed attempt)
+- Customer is NOT charged — the conflict is detected before the Stripe PaymentIntent is created, so no payment session is opened for the failed attempt
+
+> **Note on timing:** With the Stripe integration, the reservation is created (and the vehicle locked) when the user clicks "Next: Payment" at the end of Step 2 — before the card form appears. This means the conflict is detected earlier than in Phase 1: rather than at the final submit, it's caught before the customer sees the payment form at all.
 
 ### 4.2 Validation Errors
 
@@ -435,13 +456,13 @@ Cancellation policy (recommended; adjust as required):
 
 | Time before pickup | Cancellation outcome |
 |---|---|
-| > 48 hours | Full refund (Phase 2) / No charge (Phase 1) |
-| 24–48 hours | 50% charge (if payment already processed) |
-| < 24 hours | Full charge applies |
+| > 48 hours | Full refund via Stripe (3–5 business days to card) |
+| 24–48 hours | 50% refund via Stripe |
+| < 24 hours | No refund |
 
-**Phase 1 behaviour:** Refunds are processed manually by staff. The system records the cancellation; staff processes refund via bank transfer or credit.
+**Current behaviour (Stripe):** When a customer cancels, staff processes the refund manually via the Stripe Dashboard (Payments → find the charge → Refund). The amount is returned to the customer's original card within 3–5 business days. Stripe sends an automatic refund receipt to the customer's email.
 
-**Phase 2 behaviour:** Stripe refund API is called automatically based on policy rules.
+**Future automation:** The Stripe Refund API can be called automatically from the admin dashboard based on policy rules — this is a Phase 3 enhancement.
 
 ### 5.2 Cancellation Flow
 
@@ -590,17 +611,33 @@ Step 1: Details  Step 2: Terms  Step 3: Payment
 
 Steps are visually indicated; completed steps show a checkmark.
 
-### 7.5 Payment Notice Banner
+### 7.5 Step 3 — Stripe Payment Screen Layout
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  ℹ  PAYMENT NOTICE                                       │
-│  Your payment details are captured securely for staff    │
-│  to process. Your booking is not confirmed until our     │
-│  team contacts you to finalise payment within            │
-│  2 business hours.                                       │
+│  Step 3 of 3 — Payment                                   │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  Total charge (incl. GST)         AUD $165.00     │  │
+│  │  GST included:                        $15.00      │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  ┌──── Stripe Payment Element (hosted by Stripe) ─────┐  │
+│  │  Card    Bank   [Other methods if available]       │  │
+│  │  ─────────────────────────────────────────────     │  │
+│  │  Card number:  [1234 5678 9012 3456          ]     │  │
+│  │  Expiry:       [MM / YY]   CVC: [   ]             │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  🔒 Secured by Stripe. Your card details are never      │
+│     stored on our servers.                               │
+│                                                          │
+│  [← Back]          [Pay $165.00 AUD ──────────────────]  │
 └──────────────────────────────────────────────────────────┘
 ```
+
+The Stripe Payment Element automatically shows Apple Pay or Google Pay buttons above the card form if the user's browser and device support them (e.g. Safari on iPhone, Chrome on Android).
 
 ---
 
@@ -628,19 +665,20 @@ The application must be fully usable on mobile devices, as many elderly care fam
 
 | Trigger | Email Sent To | Subject |
 |---|---|---|
-| Booking submitted | Customer | "Your booking request — SNVR-[ID]" |
-| Booking confirmed by staff | Customer | "Booking confirmed — [Vehicle] on [Date]" |
+| Booking + payment confirmed (Stripe success) | Customer | "Booking confirmed — SNVR-[ID]" |
+| Stripe payment receipt | Customer | Automatic Stripe receipt from stripe.com |
 | 24 hours before pickup | Customer | "Reminder: Your vehicle hire tomorrow" |
 | Vehicle picked up | Customer | "Enjoy your trip — return by [Time]" |
 | Booking completed | Customer | "Thank you — booking complete. Share your feedback." |
 | Booking cancelled | Customer | "Your booking has been cancelled — SNVR-[ID]" |
+| Stripe refund issued | Customer | Automatic Stripe refund receipt from stripe.com |
 
 ### 9.2 Admin/Staff Emails
 
 | Trigger | Email Sent To | Action Required |
 |---|---|---|
-| New booking submitted | Staff inbox | Call customer to confirm payment |
-| Booking cancelled by customer | Staff inbox | Note for vehicle release; refund if applicable |
+| New booking submitted (payment confirmed) | Staff inbox | Prepare vehicle for pickup — payment already received |
+| Booking cancelled by customer | Staff inbox | Issue Stripe refund via Stripe Dashboard if applicable |
 | Vehicle maintenance due | Staff inbox | Schedule service; update system |
 
 ### 9.3 Confirmation Email Content (Customer)
@@ -661,11 +699,10 @@ Return:            Monday 16 June 2026, 9:00 AM AEST
 Total:             AUD $132.00 (incl. GST)
 ─────────────────────────────────────
 
-NEXT STEPS
-Our staff will call you on 0412 345 678 within 2 business hours
-to confirm your booking and process payment.
-
-Your booking is HELD (not confirmed) until payment is finalised.
+PAYMENT CONFIRMED
+Your payment of AUD $132.00 has been received via Stripe.
+Your booking is CONFIRMED. A separate receipt from Stripe
+will be emailed to you shortly.
 
 PICKUP LOCATION
 [Facility Name]
@@ -755,6 +792,13 @@ Use this checklist when deploying the application for the first time.
 - [ ] React frontend built: `npm run build` in `/frontend`
 - [ ] PM2 configured and started: `pm2 start ecosystem.config.js --env production`
 - [ ] PM2 startup hook installed: `pm2 startup && pm2 save`
+- [ ] **Stripe:** `STRIPE_SECRET_KEY` set to live key (`sk_live_...`) in `.env`
+- [ ] **Stripe:** `VITE_STRIPE_PUBLISHABLE_KEY` set to live key (`pk_live_...`) in `frontend/.env`
+- [ ] **Stripe:** Webhook endpoint registered in Stripe Dashboard → Developers → Webhooks
+  - URL: `https://rentals.facilitydomain.com.au/api/v1/payments/webhook`
+  - Events: `payment_intent.succeeded`, `payment_intent.payment_failed`
+- [ ] **Stripe:** `STRIPE_WEBHOOK_SECRET` (starts `whsec_...`) pasted into `.env`
+- [ ] **Stripe:** Frontend rebuilt after updating `frontend/.env`: `npm run build`
 
 ### 11.3 Web Server & TLS
 
@@ -786,6 +830,9 @@ Use this checklist when deploying the application for the first time.
 - [ ] Terms & Conditions page accessible
 - [ ] Phone number visible and correct on all pages
 - [ ] GST-inclusive pricing shown correctly
+- [ ] **Stripe test:** Complete a booking using test card `4242 4242 4242 4242` — confirm reservation shows as `paid` in admin
+- [ ] **Stripe test:** Complete a booking using test card `4000 0000 0000 0002` — confirm failure page is shown, no reservation confirmed
+- [ ] **Stripe live:** After switching to live keys, complete one real $1.00 test payment and then refund it via Stripe Dashboard before accepting public bookings
 
 ---
 
@@ -830,6 +877,160 @@ Completed by facility management and operations staff before accepting public bo
 - [ ] Printed flyers placed at reception, common areas, and car park
 - [ ] Staff briefed to mention the service to relevant enquiries
 - [ ] Google My Business listing updated (optional)
+
+---
+
+---
+
+## 13. Payment Testing Guide (Stripe)
+
+This section explains how to test the Stripe payment integration end-to-end using test mode. No real money is involved at any point while the test keys are active.
+
+### 13.1 How Test Mode Works
+
+Stripe provides two sets of API keys:
+- **Test keys** (`pk_test_...` / `sk_test_...`) — currently active. Use fake card numbers. No real money moves.
+- **Live keys** (`pk_live_...` / `sk_live_...`) — used in production only. Charges real cards.
+
+When test keys are active, the Stripe Payment Element still renders exactly as it will in production — the only difference is that Stripe accepts fake card numbers instead of real ones.
+
+---
+
+### 13.2 Test Card Numbers
+
+Use these card numbers in the Stripe Payment Element on the booking page. For all test cards:
+- **Expiry date:** Any future date (e.g. `12/28` or `01/30`)
+- **CVC:** Any 3 digits (e.g. `123`)
+- **Postcode/ZIP:** Any value (e.g. `2000`)
+
+#### Successful Payments
+
+| Card Number | Behaviour | Use to test |
+|---|---|---|
+| `4242 4242 4242 4242` | Payment succeeds immediately | Standard successful booking |
+| `4000 0036 0000 0002` | Payment succeeds (Visa Debit) | Debit card scenario |
+| `5555 5555 5555 4444` | Payment succeeds (Mastercard) | Mastercard scenario |
+| `3782 822463 10005` | Payment succeeds (Amex) | American Express (4-digit CVC) |
+
+#### Declined / Failed Payments
+
+| Card Number | Behaviour | Use to test |
+|---|---|---|
+| `4000 0000 0000 0002` | Card declined (generic) | Declined card error page |
+| `4000 0000 0000 9995` | Insufficient funds | Insufficient funds message |
+| `4000 0000 0000 0069` | Expired card | Expired card message |
+| `4000 0000 0000 0127` | Incorrect CVC | CVC mismatch message |
+
+#### 3D Secure (Additional Authentication)
+
+Some cards require extra verification (a popup from the bank). Stripe simulates this in test mode:
+
+| Card Number | Behaviour | Use to test |
+|---|---|---|
+| `4000 0025 0000 3155` | 3D Secure required — customer must authenticate | 3DS popup flow |
+| `4000 0027 6000 3184` | 3D Secure — customer fails authentication | Authentication failure |
+
+---
+
+### 13.3 How to Run a Full Test End-to-End
+
+**Step 1 — Start the application**
+Both servers must be running (Backend on port 8080, Frontend on port 5173).
+
+**Step 2 — Make a booking**
+1. Open `http://localhost:5173`
+2. Click "Check Availability" and search for dates
+3. Select a vehicle and click "Book This Vehicle"
+4. Fill in Step 1 (use any name/email/phone — it's all test data)
+5. Agree to Terms in Step 2 and click "Next: Payment"
+6. Wait for the Stripe Payment Element to load (1–3 seconds)
+7. Enter the test card number `4242 4242 4242 4242`, any future expiry, any CVC
+8. Click "Pay $X.XX AUD"
+
+**Step 3 — Verify payment succeeded**
+- Browser redirects to the confirmation page showing "Booking Confirmed!" with a green "Payment received" banner
+- Payment status on the page shows **Paid**
+
+**Step 4 — Verify in admin dashboard**
+1. Open `http://localhost:5173/admin/login`
+2. Username: `admin` / Password: `admin`
+3. Go to Reservations — find the booking
+4. Confirm `payment_status = paid` and `status = confirmed`
+
+**Step 5 — Verify in Stripe Dashboard**
+1. Log into your Stripe account at https://dashboard.stripe.com
+2. Make sure you are in **Test mode** (orange toggle, top-left)
+3. Go to **Payments** — your test payment should appear
+4. Click it to see the PaymentIntent details, amount, and customer metadata
+
+---
+
+### 13.4 Testing a Failed Payment
+
+1. Complete Steps 1–6 above
+2. Enter the declined card number `4000 0000 0000 0002`, any future expiry, any CVC
+3. Click "Pay"
+4. The page should show an error: *"Your card was declined."*
+5. The reservation in the admin should NOT be confirmed — payment_status remains `none` or `failed`
+
+---
+
+### 13.5 Testing 3D Secure Authentication
+
+1. Complete Steps 1–6 above
+2. Enter `4000 0025 0000 3155` as the card number
+3. A Stripe popup will appear asking to "Authorise" or "Fail" the payment
+4. Click **"Authorise"** → payment succeeds, confirmation page shows
+5. Repeat and click **"Fail"** → payment fails, failure page shows
+
+---
+
+### 13.6 Viewing Test Payments in Stripe Dashboard
+
+| Location | What you find |
+|---|---|
+| Dashboard → Payments | All test PaymentIntents — status, amount, card used |
+| Click a payment → Metadata | Shows `reservation_id`, `customer_name`, `customer_email` |
+| Dashboard → Developers → Webhooks | Webhook event log (once STRIPE_WEBHOOK_SECRET is configured) |
+| Dashboard → Radar | Fraud rules (relevant in production only) |
+
+---
+
+### 13.7 Switching to Live Keys for Production
+
+When you are ready to accept real payments:
+
+1. In your Stripe Dashboard, go to **Developers → API keys**
+2. Toggle to **Live mode** (orange indicator disappears — now in green "Live" mode)
+3. Copy the **Live publishable key** (`pk_live_...`) → paste into `frontend/.env` as `VITE_STRIPE_PUBLISHABLE_KEY`
+4. Copy the **Live secret key** (`sk_live_...`) → paste into `.env` on the production server as `STRIPE_SECRET_KEY`
+5. Register a live webhook at Stripe Dashboard → Developers → Webhooks → Add endpoint:
+   - URL: `https://rentals.facilitydomain.com.au/api/v1/payments/webhook`
+   - Events: select `payment_intent.succeeded` and `payment_intent.payment_failed`
+   - Copy the signing secret (`whsec_...`) → paste into `.env` as `STRIPE_WEBHOOK_SECRET`
+6. Rebuild the frontend on the production server: `cd frontend && npm run build`
+7. Reload the backend: `pm2 reload rental-api`
+8. Complete one real test booking with a low amount (e.g. change a vehicle's hourly rate temporarily to $1.00), verify payment processes, then refund it from the Stripe Dashboard before opening to the public
+
+> **Important:** Never commit live keys to any code repository. Store them only in the `.env` file on the production server. The `.env` file is in `.gitignore` and is never uploaded.
+
+---
+
+### 13.8 Processing a Refund (Staff Guide)
+
+When a customer cancels and is entitled to a refund:
+
+1. Log into Stripe Dashboard → **Payments**
+2. Search for the customer's email or booking reference
+3. Click the payment to open it
+4. Click **"Refund"** button (top right)
+5. Enter the refund amount (full or partial, as per the cancellation policy)
+6. Add a reason note (optional but recommended)
+7. Click **"Refund"**
+
+The customer receives an automatic refund confirmation email from Stripe. The amount returns to their card within **5–10 business days** (Stripe's standard timeframe; most Australian banks process within 3–5 business days).
+
+Also update the reservation in the admin dashboard: set `payment_status` to `refunded`.
 
 ---
 

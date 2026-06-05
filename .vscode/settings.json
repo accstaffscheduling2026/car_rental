@@ -1,0 +1,43 @@
+{
+  // Exclude heavy folders from file search and watcher
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/.git": true,
+    "**/frontend/dist": true,
+    "**/data/*.sqlite": false
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/frontend/dist": true,
+    "**/frontend/node_modules": true
+  },
+
+  // Editor defaults
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+
+  // Tailwind CSS — enable autocomplete inside JSX className strings
+  "tailwindCSS.includeLanguages": {
+    "javascript": "javascript",
+    "javascriptreact": "javascriptreact"
+  },
+  "editor.quickSuggestions": {
+    "strings": "on"
+  },
+
+  // SQLite — associate .sqlite files with the viewer
+  "files.associations": {
+    "*.sqlite": "sqlite",
+    ".env*": "dotenv"
+  },
+
+  // Terminal — use PowerShell by default on Windows
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+
+  // Emmet — work inside JSX files
+  "emmet.includeLanguages": {
+    "javascriptreact": "html"
+  }
+}

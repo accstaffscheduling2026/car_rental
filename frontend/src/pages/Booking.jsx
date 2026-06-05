@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { getVehicle, createReservation, submitPaymentForm } from '../utils/api.js';
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { stripePromise } from '../utils/stripe.js';
+import { getVehicle, createReservation, createPaymentIntent, cancelReservation } from '../utils/api.js';
 import BookingProgress from '../components/BookingProgress.jsx';
-import { AlertError, AlertInfo, AlertWarning } from '../components/Alert.jsx';
-import { formatAUDFromString, formatSydney, vehicleTypeLabel } from '../utils/formatters.js';
+import { AlertError, AlertInfo } from '../components/Alert.jsx';
+import { formatAUDFromString, formatSydney } from '../utils/formatters.js';
 
 const TERMS_TEXT = `VEHICLE HIRE AGREEMENT & TERMS AND CONDITIONS
 
@@ -28,7 +30,7 @@ The vehicle is comprehensively insured. The renter accepts liability for any dam
 - More than 48 hours before pickup: full refund / no charge
 - 24–48 hours before pickup: 50% of hire cost may be charged
 - Less than 24 hours before pickup: full hire cost applies
-Refunds in Phase 1 are processed manually by staff within 3 business days.
+Refunds are processed within 3–5 business days via Stripe to the original payment method.
 
 7. RETURN OF VEHICLE
 The vehicle must be returned on time and in the same condition as at pickup. Late returns without prior agreement will be charged at the standard hourly rate.
@@ -43,30 +45,178 @@ These terms are governed by the laws of New South Wales, Australia. Any disputes
 By checking the acceptance box, you agree that this constitutes a legally binding electronic agreement under the Electronic Transactions Act 2000 (NSW).`;
 
 const ADDON_PRICES = {
-  child_seat: 5.50,
-  gps: 5.50,
+  child_seat:   5.50,
+  gps:          5.50,
   extended_hrs: 11.00,
 };
 const ADDON_LABELS = {
-  child_seat: 'Child Booster Seat',
-  gps: 'GPS Navigation Unit',
+  child_seat:   'Child Booster Seat',
+  gps:          'GPS Navigation Unit',
   extended_hrs: 'Extended Hours Pickup',
 };
 
+// ─── Stripe payment form — must be a child of <Elements> to use useStripe/useElements ───
+function StripePaymentForm({ grandTotal, gst, onBack, reservationId, customerName, customerEmail, customerPhone, globalError, setGlobalError }) {
+  const stripe   = useStripe();
+  const elements = useElements();
+  const [submitting, setSubmitting] = useState(false);
+  const [stripeReady, setStripeReady] = useState(false);
+
+  async function handlePay(e) {
+    e.preventDefault();
+
+    // Guard: show diagnostic message if Stripe isn't ready instead of silently failing
+    if (!stripe) {
+      setGlobalError('Payment system not ready — stripe not initialised. Please refresh the page and try again.');
+      return;
+    }
+    if (!elements) {
+      setGlobalError('Payment form not ready — elements not initialised. Please refresh the page and try again.');
+      return;
+    }
+
+    setSubmitting(true);
+    setGlobalError('');
+
+    const returnUrl = `${window.location.origin}/booking/confirmation?reservation_id=${reservationId}`;
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('__timeout__')), 45000)
+    );
+
+    try {
+      const { error } = await Promise.race([
+        stripe.confirmPayment({
+          elements,
+          confirmParams: {
+            return_url: returnUrl,
+            payment_method_data: {
+              billing_details: {
+                name:  customerName,
+                email: customerEmail,
+                phone: customerPhone,
+              },
+            },
+          },
+        }),
+        timeoutPromise,
+      ]);
+
+      // Only reached on a Stripe error — success redirects the browser away.
+      if (error) {
+        setGlobalError(
+          error.type === 'card_error' || error.type === 'validation_error'
+            ? error.message
+            : `Payment failed (${error.code || error.type}): ${error.message}`
+        );
+      }
+    } catch (err) {
+      if (err.message === '__timeout__') {
+        setGlobalError(
+          'Payment timed out — browser could not reach Stripe. ' +
+          'Check your internet connection and try again. No charge has been made.'
+        );
+      } else {
+        // Show the real error so we can diagnose it
+        setGlobalError(`Error: ${err.message || String(err)}`);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handlePay} noValidate>
+      {/* Amount summary */}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-5">
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-600">Total charge (incl. GST)</span>
+          <span className="font-bold text-gray-900 text-base">{formatAUDFromString(grandTotal.toFixed(2))} AUD</span>
+        </div>
+        <p className="text-xs text-gray-400 mt-1">GST included: {formatAUDFromString(gst.toFixed(2))}</p>
+      </div>
+
+      {/* Stripe Payment Element — renders card input, Apple Pay, Google Pay depending on browser */}
+      <div className="mb-5">
+        <PaymentElement
+          onReady={() => setStripeReady(true)}
+          options={{
+            layout: 'tabs',
+            fields: {
+              billingDetails: {
+                email: 'never',  // already collected in Step 1
+                phone: 'never',
+              },
+            },
+          }}
+        />
+      </div>
+
+      {globalError && (
+        <div className="mb-4">
+          <AlertError>{globalError}</AlertError>
+        </div>
+      )}
+
+      <p className="text-xs text-gray-400 text-center mb-5 flex items-center justify-center gap-1.5">
+        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+          <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+        </svg>
+        Secured by Stripe. Your card details are never stored on our servers.
+      </p>
+
+      <div className="flex justify-between gap-4">
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={submitting}
+          className="btn-secondary"
+        >
+          ← Back
+        </button>
+        <button
+          type="submit"
+          disabled={!stripe || !elements || !stripeReady || submitting}
+          className="btn-primary flex-1"
+        >
+          {submitting
+            ? <span className="flex items-center justify-center gap-2">
+                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"/>
+                </svg>
+                Processing… please wait
+              </span>
+            : `Pay ${formatAUDFromString(grandTotal.toFixed(2))} AUD`
+          }
+        </button>
+      </div>
+
+      {submitting && (
+        <p className="text-xs text-gray-400 text-center mt-3" aria-live="polite">
+          Contacting your bank — this usually takes 5–15 seconds. Please do not close or refresh the page.
+        </p>
+      )}
+    </form>
+  );
+}
+
+// ─── Main Booking component ──────────────────────────────────────────────────
 export default function Booking() {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const headingRef = useRef(null);
+  const navigate       = useNavigate();
+  const headingRef     = useRef(null);
 
-  const vehicleId  = searchParams.get('vehicle_id');
-  const startUtc   = searchParams.get('start');
-  const endUtc     = searchParams.get('end');
-  const addonsStr  = searchParams.get('addons') || '';
-  const addons     = addonsStr ? addonsStr.split(',').filter(Boolean) : [];
+  const vehicleId = searchParams.get('vehicle_id');
+  const startUtc  = searchParams.get('start');
+  const endUtc    = searchParams.get('end');
+  const addonsStr = searchParams.get('addons') || '';
+  const addons    = addonsStr ? addonsStr.split(',').filter(Boolean) : [];
 
-  const [vehicle, setVehicle] = useState(null);
-  const [step, setStep]       = useState(1);
-  const [error, setError]     = useState('');
+  const [vehicle, setVehicle]           = useState(null);
+  const [step, setStep]                 = useState(1);
+  const [error, setError]               = useState('');
+  const [transitioning, setTransitioning] = useState(false);
 
   // Step 1 fields
   const [name,  setName]  = useState('');
@@ -77,51 +227,43 @@ export default function Booking() {
 
   // Step 2
   const [agreed, setAgreed] = useState(false);
-  const [errs2, setErrs2]   = useState({});
+  const [errs2,  setErrs2]  = useState({});
 
-  // Step 3
-  const [cardName,  setCardName]  = useState('');
-  const [cardLast4, setCardLast4] = useState('');
-  const [expMonth,  setExpMonth]  = useState('');
-  const [expYear,   setExpYear]   = useState('');
-  const [errs3, setErrs3]         = useState({});
-  const [submitting, setSubmitting] = useState(false);
-  const [reservation, setReservation] = useState(null);
+  // Step 3 — Stripe
+  const [reservation,  setReservation]  = useState(null);
+  const [clientSecret, setClientSecret] = useState(null);
 
   useEffect(() => {
     if (!vehicleId) { navigate('/availability'); return; }
     getVehicle(vehicleId).then(r => setVehicle(r.data)).catch(() => navigate('/availability'));
   }, [vehicleId]);
 
-  // Move focus to heading on step change
-  useEffect(() => {
-    headingRef.current?.focus();
-  }, [step]);
+  useEffect(() => { headingRef.current?.focus(); }, [step]);
 
   if (!vehicle) return (
     <div className="max-w-2xl mx-auto px-4 py-16 text-center text-gray-500" aria-live="polite">Loading…</div>
   );
 
-  const hourlyRate = parseFloat(vehicle.hourly_rate_aud);
-  const dailyRate  = parseFloat(vehicle.daily_rate_aud);
-  const ms = startUtc && endUtc ? new Date(endUtc) - new Date(startUtc) : 0;
-  const hours = ms / 3600000;
-  const days  = Math.floor(hours / 24);
-  const remH  = Math.ceil(hours % 24);
-  const rentalTotal  = days * dailyRate + remH * hourlyRate;
-  const addonsTotal  = addons.reduce((s, a) => s + (ADDON_PRICES[a] || 0), 0);
-  const grandTotal   = rentalTotal + addonsTotal;
-  const gst          = grandTotal * 10 / 110;
+  const hourlyRate  = parseFloat(vehicle.hourly_rate_aud);
+  const dailyRate   = parseFloat(vehicle.daily_rate_aud);
+  const ms          = startUtc && endUtc ? new Date(endUtc) - new Date(startUtc) : 0;
+  const hours       = ms / 3600000;
+  const days        = Math.floor(hours / 24);
+  const remH        = Math.ceil(hours % 24);
+  const rentalTotal = days * dailyRate + remH * hourlyRate;
+  const addonsTotal = addons.reduce((s, a) => s + (ADDON_PRICES[a] || 0), 0);
+  const grandTotal  = rentalTotal + addonsTotal;
+  const gst         = grandTotal * 10 / 110;
 
-  // ---- Step 1 validation ----
+  // ── Step 1 ──
   function validateStep1() {
     const e = {};
     if (!name.trim() || name.trim().length < 2) e.name = 'Full name is required (at least 2 characters)';
     if (!email.trim()) e.email = 'Email address is required';
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = 'Please enter a valid email address (e.g., name@example.com)';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = 'Please enter a valid email address';
     if (!phone.trim()) e.phone = 'Mobile phone number is required';
     else if (!/^(\+61|0)[2-478]\d{8,9}$/.test(phone.replace(/\s/g, '')))
-      e.phone = 'Please enter a valid Australian mobile number (e.g. 0412 345 678)';
+      e.phone = 'Please enter a valid Australian number (e.g. 0412 345 678)';
     return e;
   }
 
@@ -131,40 +273,19 @@ export default function Booking() {
     if (Object.keys(e).length === 0) { setStep(2); setError(''); }
   }
 
-  // ---- Step 2 ----
-  function handleStep2Next() {
+  // ── Step 2 → Step 3: create reservation + PaymentIntent ──
+  async function handleStep2Next() {
     if (!agreed) { setErrs2({ terms: 'You must agree to the hire terms and conditions to proceed' }); return; }
     setErrs2({});
-    setStep(3);
     setError('');
-    // Pre-fill payment form from step 1
-    setCardName(name);
-  }
+    setTransitioning(true);
 
-  // ---- Step 3: submit ----
-  function validateStep3() {
-    const e = {};
-    if (!cardName.trim()) e.cardName = 'Name on card is required';
-    if (!/^\d{4}$/.test(cardLast4)) e.cardLast4 = 'Please enter the last 4 digits of your card';
-    if (!expMonth) e.expMonth = 'Expiry month is required';
-    if (!expYear || expYear.length !== 4) e.expYear = 'Expiry year is required';
-    return e;
-  }
-
-  async function handleSubmit() {
-    const e = validateStep3();
-    setErrs3(e);
-    if (Object.keys(e).length > 0) return;
-
-    setSubmitting(true);
-    setError('');
     try {
-      // Create reservation
       const res = await createReservation({
         vehicle_id:     parseInt(vehicleId, 10),
         customer_name:  name,
         customer_email: email,
-        customer_phone: phone,
+        customer_phone: phone.replace(/\s/g, ''), // strip spaces — backend regex requires no spaces
         intended_use:   use || undefined,
         addons_json:    addons,
         start_utc:      startUtc,
@@ -175,28 +296,38 @@ export default function Booking() {
       const resv = res.data;
       setReservation(resv);
 
-      // Submit payment form
-      await submitPaymentForm({
-        reservation_id:  resv.id,
-        cardholder_name: cardName,
-        billing_email:   email,
-        billing_phone:   phone,
-        card_last4:      cardLast4,
-        expiry_month:    expMonth,
-        expiry_year:     expYear,
-        amount_aud:      grandTotal.toFixed(2),
-      });
-
-      navigate('/booking/confirmation', { state: { reservation: resv, vehicle } });
+      const { client_secret } = await createPaymentIntent(resv.id);
+      setClientSecret(client_secret);
+      setStep(3);
     } catch (err) {
       if (err.status === 409) {
         setError('This vehicle was just booked by another customer. Please go back and choose a different vehicle or time.');
+      } else if (err.status === 422 && err.data?.issues?.length) {
+        // Show the first specific field error from Zod rather than the generic "Validation failed"
+        const first = err.data.issues[0];
+        const field = first.path?.join(' → ') || 'field';
+        setError(`Please check your details — ${first.message} (${field}). Go back to Step 1 to correct it.`);
       } else {
-        setError(err.message || 'Booking failed. Please try again.');
+        setError(err.message || 'Unable to set up booking. Please try again.');
       }
     } finally {
-      setSubmitting(false);
+      setTransitioning(false);
     }
+  }
+
+  // ── Back from Step 3: cancel the reservation so the vehicle is freed up ──
+  async function handleBackFromStep3() {
+    if (reservation) {
+      try {
+        await cancelReservation(reservation.id, { customer_email: email, reason: 'Customer went back to modify booking' });
+      } catch (_) {
+        // Ignore errors — we still navigate back regardless
+      }
+    }
+    setReservation(null);
+    setClientSecret(null);
+    setStep(2);
+    setError('');
   }
 
   const inputClass = (err) => `input ${err ? 'input-error' : ''}`;
@@ -209,7 +340,7 @@ export default function Booking() {
 
       <BookingProgress step={step} />
 
-      {/* Booking summary */}
+      {/* Booking summary bar */}
       <div className="card p-4 mb-6 text-sm">
         <div className="flex justify-between items-center">
           <div>
@@ -227,12 +358,23 @@ export default function Booking() {
         </div>
       </div>
 
-      {error && <div className="mb-6"><AlertError>{error} <a href="/availability" className="underline font-medium">Back to search</a></AlertError></div>}
+      {error && (
+        <div className="mb-6">
+          <AlertError>
+            {error}{' '}
+            {error.includes('booked by another') && (
+              <a href="/availability" className="underline font-medium">Back to search</a>
+            )}
+          </AlertError>
+        </div>
+      )}
 
-      {/* ===== Step 1 ===== */}
+      {/* ===== Step 1: Personal details ===== */}
       {step === 1 && (
         <section className="card p-6" aria-labelledby="step1-heading">
-          <h2 id="step1-heading" className="text-xl font-semibold text-gray-900 mb-5">Step 1 of 3 — Personal Details</h2>
+          <h2 id="step1-heading" className="text-xl font-semibold text-gray-900 mb-5">
+            Step 1 of 3 — Personal Details
+          </h2>
           <div className="space-y-4">
             <div>
               <label htmlFor="cust-name" className="label">Full name <span className="text-red-500" aria-label="required">*</span></label>
@@ -269,10 +411,12 @@ export default function Booking() {
         </section>
       )}
 
-      {/* ===== Step 2 ===== */}
+      {/* ===== Step 2: Terms & Conditions ===== */}
       {step === 2 && (
         <section className="card p-6" aria-labelledby="step2-heading">
-          <h2 id="step2-heading" className="text-xl font-semibold text-gray-900 mb-4">Step 2 of 3 — Terms &amp; Conditions</h2>
+          <h2 id="step2-heading" className="text-xl font-semibold text-gray-900 mb-4">
+            Step 2 of 3 — Terms &amp; Conditions
+          </h2>
           <div
             className="border border-gray-200 rounded-lg p-4 h-64 overflow-y-auto text-sm text-gray-700 bg-gray-50 whitespace-pre-wrap font-mono leading-relaxed"
             tabIndex={0}
@@ -304,87 +448,51 @@ export default function Booking() {
             {errs2.terms && <p id="terms-err" className="error-text ml-7" role="alert">⚠ {errs2.terms}</p>}
           </div>
           <div className="flex justify-between mt-6">
-            <button onClick={() => setStep(1)} className="btn-secondary">← Back</button>
-            <button onClick={handleStep2Next} className="btn-primary">Next: Payment →</button>
+            <button onClick={() => setStep(1)} className="btn-secondary" disabled={transitioning}>← Back</button>
+            <button onClick={handleStep2Next} disabled={transitioning} className="btn-primary">
+              {transitioning ? 'Setting up payment…' : 'Next: Payment →'}
+            </button>
           </div>
         </section>
       )}
 
-      {/* ===== Step 3 ===== */}
+      {/* ===== Step 3: Stripe Payment ===== */}
       {step === 3 && (
         <section className="card p-6" aria-labelledby="step3-heading">
-          <h2 id="step3-heading" className="text-xl font-semibold text-gray-900 mb-4">Step 3 of 3 — Payment Details</h2>
+          <h2 id="step3-heading" className="text-xl font-semibold text-gray-900 mb-5">
+            Step 3 of 3 — Payment
+          </h2>
 
-          <AlertWarning>
-            <strong>Payment Notice:</strong> This form captures your payment details for staff to process.
-            Your booking is <strong>held (not confirmed)</strong> until our team contacts you within 2 business hours
-            to finalise payment by phone or bank transfer.
-          </AlertWarning>
-
-          <div className="space-y-4 mt-5">
-            <div>
-              <label htmlFor="card-name" className="label">Name on card <span className="text-red-500" aria-label="required">*</span></label>
-              <input id="card-name" type="text" value={cardName} onChange={e => setCardName(e.target.value)}
-                autoComplete="cc-name" className={inputClass(errs3.cardName)}
-                aria-required="true" aria-describedby={errs3.cardName ? 'cname-err' : undefined} />
-              {errs3.cardName && <p id="cname-err" className="error-text" role="alert">⚠ {errs3.cardName}</p>}
+          {clientSecret ? (
+            <Elements
+              stripe={stripePromise}
+              options={{
+                clientSecret,
+                appearance: {
+                  theme: 'stripe',
+                  variables: { colorPrimary: '#2563eb', borderRadius: '8px' },
+                },
+              }}
+            >
+              <StripePaymentForm
+                grandTotal={grandTotal}
+                gst={gst}
+                onBack={handleBackFromStep3}
+                reservationId={reservation?.id}
+                customerName={name}
+                customerEmail={email}
+                customerPhone={phone.replace(/\s/g, '')}
+                globalError={error}
+                setGlobalError={setError}
+              />
+            </Elements>
+          ) : (
+            <div className="py-12 text-center text-gray-500" aria-live="polite">
+              <div className="animate-spin w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full mx-auto mb-3" aria-hidden="true" />
+              <p className="font-medium">Setting up secure payment…</p>
+              <p className="text-xs mt-1 text-gray-400">Connecting to Stripe — usually takes 2–5 seconds</p>
             </div>
-
-            <div>
-              <label htmlFor="card-last4" className="label">Card number — last 4 digits only <span className="text-red-500" aria-label="required">*</span></label>
-              <input id="card-last4" type="tel" inputMode="numeric" maxLength={4}
-                value={cardLast4} onChange={e => setCardLast4(e.target.value.replace(/\D/g, ''))}
-                placeholder="e.g. 4242" className={`input max-w-[120px] ${errs3.cardLast4 ? 'input-error' : ''}`}
-                aria-required="true" aria-describedby={errs3.cardLast4 ? 'last4-err' : 'last4-hint'} />
-              <p id="last4-hint" className="text-xs text-gray-500 mt-1">We only store the last 4 digits — never your full card number.</p>
-              {errs3.cardLast4 && <p id="last4-err" className="error-text" role="alert">⚠ {errs3.cardLast4}</p>}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="exp-month" className="label">Expiry month <span className="text-red-500" aria-label="required">*</span></label>
-                <select id="exp-month" value={expMonth} onChange={e => setExpMonth(e.target.value)}
-                  className={inputClass(errs3.expMonth)} aria-required="true"
-                  aria-describedby={errs3.expMonth ? 'month-err' : undefined}>
-                  <option value="">MM</option>
-                  {Array.from({ length: 12 }, (_, i) => {
-                    const m = String(i + 1).padStart(2, '0');
-                    return <option key={m} value={m}>{m}</option>;
-                  })}
-                </select>
-                {errs3.expMonth && <p id="month-err" className="error-text" role="alert">⚠ {errs3.expMonth}</p>}
-              </div>
-              <div>
-                <label htmlFor="exp-year" className="label">Expiry year <span className="text-red-500" aria-label="required">*</span></label>
-                <select id="exp-year" value={expYear} onChange={e => setExpYear(e.target.value)}
-                  className={inputClass(errs3.expYear)} aria-required="true"
-                  aria-describedby={errs3.expYear ? 'year-err' : undefined}>
-                  <option value="">YYYY</option>
-                  {Array.from({ length: 10 }, (_, i) => {
-                    const y = String(new Date().getFullYear() + i);
-                    return <option key={y} value={y}>{y}</option>;
-                  })}
-                </select>
-                {errs3.expYear && <p id="year-err" className="error-text" role="alert">⚠ {errs3.expYear}</p>}
-              </div>
-            </div>
-
-            {/* Read-only amount */}
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Total amount (incl. GST)</span>
-                <span className="font-bold text-gray-900 text-base">{formatAUDFromString(grandTotal.toFixed(2))} AUD</span>
-              </div>
-              <p className="text-xs text-gray-400 mt-1">GST component: {formatAUDFromString(gst.toFixed(2))}</p>
-            </div>
-          </div>
-
-          <div className="flex justify-between mt-6 gap-4">
-            <button onClick={() => setStep(2)} className="btn-secondary" disabled={submitting}>← Back</button>
-            <button onClick={handleSubmit} disabled={submitting} className="btn-primary flex-1">
-              {submitting ? 'Submitting…' : 'Submit Booking & Payment Details'}
-            </button>
-          </div>
+          )}
         </section>
       )}
     </div>

@@ -1,0 +1,79 @@
+# ============================================================
+# SSH Config — Remote-SSH for DigitalOcean Deployment Server
+# ============================================================
+#
+# HOW TO USE THIS FILE:
+#
+# 1. Copy the block below into your SSH config file at:
+#       C:\Users\DueDiligence\.ssh\config
+#    (Create that file if it doesn't exist yet)
+#
+# 2. Replace:
+#       YOUR_DROPLET_IP  → the IP address shown in your DigitalOcean dashboard
+#       YOUR_SSH_KEY     → path to your private key file (e.g. id_rsa or id_ed25519)
+#
+# 3. In VS Code:
+#       - Install the "Remote - SSH" extension (ms-vscode-remote.remote-ssh)
+#       - Press Ctrl+Shift+P → "Remote-SSH: Connect to Host..."
+#       - Select: rental-server
+#       - VS Code will open a new window connected to the DigitalOcean server
+#       - You can then browse files, run terminal commands, and deploy — all from VS Code
+#
+# ─────────────────────────────────────────────────────────────
+
+Host rental-server
+    HostName YOUR_DROPLET_IP
+    User deploy
+    IdentityFile ~/.ssh/YOUR_SSH_KEY
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+
+# ─────────────────────────────────────────────────────────────
+# EXAMPLE (with real values filled in):
+#
+# Host rental-server
+#     HostName 203.0.113.45
+#     User deploy
+#     IdentityFile ~/.ssh/id_ed25519
+#     ServerAliveInterval 60
+#     ServerAliveCountMax 3
+# ─────────────────────────────────────────────────────────────
+
+
+# ============================================================
+# GENERATING AN SSH KEY (if you don't have one yet)
+# ============================================================
+#
+# Run this in PowerShell on your Windows machine:
+#
+#   ssh-keygen -t ed25519 -C "rental-deploy"
+#
+# Press Enter to accept the default file location (~/.ssh/id_ed25519).
+# Set a passphrase if you want extra security (recommended).
+#
+# This creates two files:
+#   ~/.ssh/id_ed25519        ← PRIVATE key (never share this)
+#   ~/.ssh/id_ed25519.pub    ← PUBLIC key  (paste this into DigitalOcean)
+#
+# When creating your DigitalOcean droplet, paste the contents of
+# id_ed25519.pub into the "SSH Keys" section.
+# ============================================================
+
+
+# ============================================================
+# DEPLOYING FROM VS CODE REMOTE-SSH
+# ============================================================
+#
+# Once connected to rental-server via Remote-SSH, open a terminal
+# (Ctrl+`) inside VS Code and run the deployment commands:
+#
+#   cd /var/www/rental
+#   git pull
+#   npm ci --omit=dev
+#   cd frontend && npm ci && npm run build && cd ..
+#   npm run migrate
+#   pm2 reload rental-api
+#
+# You can also use the VS Code file browser to directly edit
+# files on the server — changes save directly to the VPS.
+# ============================================================

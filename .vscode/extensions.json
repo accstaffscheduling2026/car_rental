@@ -1,0 +1,25 @@
+{
+  "recommendations": [
+    // Remote access — connect to DigitalOcean server from VS Code
+    "ms-vscode-remote.remote-ssh",
+
+    // Database — view and query the SQLite .sqlite file visually
+    "alexcvzz.vscode-sqlite",
+
+    // Tailwind CSS — autocomplete for class names in JSX
+    "bradlc.vscode-tailwindcss",
+
+    // JavaScript/React quality tools
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+
+    // Git helpers — blame annotations, history, file history
+    "eamodio.gitlens",
+
+    // Dotenv — syntax highlighting for .env files
+    "mikestead.dotenv",
+
+    // File icons — makes the file tree easier to read
+    "PKief.material-icon-theme"
+  ]
+}

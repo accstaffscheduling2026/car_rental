@@ -28,7 +28,13 @@ export async function getAvailability(params)   {
 export async function createReservation(body)   { return api.post('/reservations', body); }
 export async function getReservation(id, email) { return api.get(`/reservations/${id}?email=${encodeURIComponent(email)}`); }
 export async function cancelReservation(id, body) { return api.patch(`/reservations/${id}/cancel`, body); }
-export async function submitPaymentForm(body)   { return api.post('/payments/form', body); }
+// Stripe Phase 2 payment
+export async function createPaymentIntent(reservationId) {
+  return api.post('/payments/intent', { reservation_id: reservationId });
+}
+export async function verifyPayment(paymentIntentId, reservationId) {
+  return api.get(`/payments/verify?payment_intent=${encodeURIComponent(paymentIntentId)}&reservation_id=${encodeURIComponent(reservationId)}`);
+}
 
 // Admin
 export async function adminLogin(body)                  { return api.post('/admin/login', body); }

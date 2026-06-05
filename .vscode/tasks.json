@@ -1,0 +1,248 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+
+    // ─── FIRST-TIME SETUP ───────────────────────────────────────────────────
+    {
+      "label": "Setup: Install Backend Dependencies",
+      "type": "shell",
+      "command": "npm install",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Setup: Install Frontend Dependencies",
+      "type": "shell",
+      "command": "npm install",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Setup: Run Database Migration",
+      "type": "shell",
+      "command": "npm run migrate",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Setup: Seed 100 Sample Vehicles",
+      "type": "shell",
+      "command": "npm run seed",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "⭐ FIRST-TIME SETUP (Install + Migrate + Seed)",
+      "dependsOn": [
+        "Setup: Install Backend Dependencies",
+        "Setup: Install Frontend Dependencies",
+        "Setup: Run Database Migration",
+        "Setup: Seed 100 Sample Vehicles"
+      ],
+      "dependsOrder": "sequence",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+
+    // ─── DEVELOPMENT SERVERS ────────────────────────────────────────────────
+    {
+      "label": "Dev: Start Backend API (port 8080)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "devServers",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Dev: Start Frontend Vite Server (port 5173)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "isBackground": true,
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "devServers",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "⭐ Dev: Start Both Servers (open http://localhost:5173)",
+      "dependsOn": [
+        "Dev: Start Backend API (port 8080)",
+        "Dev: Start Frontend Vite Server (port 5173)"
+      ],
+      "dependsOrder": "parallel",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+
+    // ─── PRODUCTION BUILD ────────────────────────────────────────────────────
+    {
+      "label": "Build: Build Frontend for Production",
+      "type": "shell",
+      "command": "npm run build",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Build: Start Production Server Locally (port 8080)",
+      "type": "shell",
+      "command": "$env:NODE_ENV = 'production'; npm start",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-Command"]
+        }
+      },
+      "isBackground": true,
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "⭐ Build + Run Locally (simulate production)",
+      "dependsOn": [
+        "Build: Build Frontend for Production",
+        "Build: Start Production Server Locally (port 8080)"
+      ],
+      "dependsOrder": "sequence",
+      "group": "build",
+      "problemMatcher": []
+    },
+
+    // ─── TESTS ───────────────────────────────────────────────────────────────
+    {
+      "label": "Test: Run All Tests",
+      "type": "shell",
+      "command": "npm test",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+
+    // ─── DATABASE UTILITIES ──────────────────────────────────────────────────
+    {
+      "label": "DB: Reset Database (delete + migrate + seed)",
+      "type": "shell",
+      "command": "if (Test-Path data\\rental.sqlite) { Remove-Item data\\rental.sqlite }; npm run migrate; npm run seed",
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "shell": {
+          "executable": "powershell.exe",
+          "args": ["-Command"]
+        }
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "DB: Run Migration Only",
+      "type": "shell",
+      "command": "npm run migrate",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+
+    // ─── SECRETS GENERATION ──────────────────────────────────────────────────
+    {
+      "label": "Generate: Session Secret (copy to .env SESSION_SECRET)",
+      "type": "shell",
+      "command": "node -e \"console.log(require('crypto').randomBytes(64).toString('hex'));\"",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Generate: Admin Password Hash (copy to .env ADMIN_PASSWORD_HASH)",
+      "type": "shell",
+      "command": "node -e \"const p = process.env.NEW_ADMIN_PASSWORD || 'admin'; require('bcrypt').hash(p, 12).then(h => { console.log('Hash for password \\\"' + p + '\\\":\\n' + h); });\"",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}
