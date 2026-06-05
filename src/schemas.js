@@ -51,4 +51,15 @@ const AdminLogin = z.object({
   password: z.string().min(1),
 });
 
-module.exports = { ReservationCreate, PaymentForm, VehicleCreate, CancelRequest, AdminLogin };
+const EmployeeCreate = z.object({
+  emp_id: z.string().min(1).max(30),
+  name:   z.string().min(2).max(100),
+  email:  z.string().email(),
+  phone:  z.string().max(20).optional(),
+});
+
+const CodeValidate = z.object({
+  code: z.string().length(12),
+});
+
+module.exports = { ReservationCreate, PaymentForm, VehicleCreate, CancelRequest, AdminLogin, EmployeeCreate, CodeValidate };

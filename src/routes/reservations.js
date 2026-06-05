@@ -24,6 +24,9 @@ router.post('/', (req, res) => {
   }
   const data = parsed.data;
 
+  // Optional booking code — validated and redeemed atomically with the reservation
+  const rawCode = req.body.booking_code ? String(req.body.booking_code).trim().toUpperCase() : null;
+
   const startDate = new Date(data.start_utc);
   const endDate   = new Date(data.end_utc);
   const now = new Date();
@@ -55,27 +58,58 @@ router.post('/', (req, res) => {
       return { status: 409, error: 'Vehicle is no longer available for the requested time window' };
     }
 
+    // Validate booking code if provided
+    let codeRecord = null;
+    if (rawCode) {
+      codeRecord = db.prepare(`
+        SELECT bc.*, e.name AS employee_name
+        FROM booking_codes bc JOIN employees e ON e.id = bc.employee_id
+        WHERE bc.code = ? AND bc.status = 'active'
+      `).get(rawCode);
+      if (!codeRecord) return { status: 422, error: 'Invalid or expired booking code' };
+      if (new Date(codeRecord.expires_at) < new Date()) {
+        db.prepare("UPDATE booking_codes SET status = 'expired' WHERE id = ?").run(codeRecord.id);
+        return { status: 422, error: 'Booking code has expired' };
+      }
+    }
+
     const { totalCents, gstCents } = calcPrice(
       vehicle.hourly_rate_cents, vehicle.daily_rate_cents, startDate, endDate
     );
+
+    const initStatus  = rawCode ? 'confirmed' : 'pending';
+    const initPayment = rawCode ? 'code_redeemed' : 'none';
 
     const result = db.prepare(`
       INSERT INTO reservations
         (vehicle_id, customer_name, customer_email, customer_phone, intended_use,
          addons_json, start_utc, end_utc, price_cents, gst_cents,
          terms_accepted, terms_accepted_at, status, payment_status)
-      VALUES (?,?,?,?,?,?,?,?,?,?,1,datetime('now'),'pending','none')
+      VALUES (?,?,?,?,?,?,?,?,?,?,1,datetime('now'),?,?)
     `).run(
       data.vehicle_id, data.customer_name, data.customer_email, data.customer_phone,
       data.intended_use || null,
       data.addons_json ? JSON.stringify(data.addons_json) : null,
-      startStr, endStr, totalCents, gstCents
+      startStr, endStr, totalCents, gstCents,
+      initStatus, initPayment
     );
+
+    // Redeem the code — mark as used and link to this reservation
+    if (codeRecord) {
+      db.prepare(`
+        UPDATE booking_codes
+        SET status = 'used', used_at = datetime('now'), used_reservation_id = ?
+        WHERE id = ?
+      `).run(result.lastInsertRowid, codeRecord.id);
+    }
 
     db.prepare(`
       INSERT INTO audit_log (entity, entity_id, action, actor, detail_json)
       VALUES ('reservation', ?, 'create', 'customer', ?)
-    `).run(result.lastInsertRowid, JSON.stringify({ vehicle_id: data.vehicle_id }));
+    `).run(result.lastInsertRowid, JSON.stringify({
+      vehicle_id: data.vehicle_id,
+      payment_method: rawCode ? 'booking_code' : 'stripe',
+    }));
 
     const reservation = db.prepare(`SELECT * FROM reservations WHERE id = ?`).get(result.lastInsertRowid);
     return { status: 201, reservation, vehicle };

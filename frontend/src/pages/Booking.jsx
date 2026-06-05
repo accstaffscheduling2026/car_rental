@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { stripePromise } from '../utils/stripe.js';
-import { getVehicle, createReservation, createPaymentIntent, cancelReservation } from '../utils/api.js';
+import { getVehicle, createReservation, createPaymentIntent, cancelReservation, validateBookingCode } from '../utils/api.js';
 import BookingProgress from '../components/BookingProgress.jsx';
 import { AlertError, AlertInfo } from '../components/Alert.jsx';
 import { formatAUDFromString, formatSydney } from '../utils/formatters.js';
@@ -229,7 +229,14 @@ export default function Booking() {
   const [agreed, setAgreed] = useState(false);
   const [errs2,  setErrs2]  = useState({});
 
-  // Step 3 — Stripe
+  // Step 3 — payment option
+  const [paymentOption, setPaymentOption]   = useState('card'); // 'card' | 'code'
+  const [employeeCode,  setEmployeeCode]    = useState('');
+  const [codeInfo,      setCodeInfo]        = useState(null);   // { employee_name, expires_at } when verified
+  const [codeErr,       setCodeErr]         = useState('');
+  const [codeSubmitting, setCodeSubmitting] = useState(false);
+
+  // Step 3 — Stripe card path
   const [reservation,  setReservation]  = useState(null);
   const [clientSecret, setClientSecret] = useState(null);
 
@@ -273,59 +280,94 @@ export default function Booking() {
     if (Object.keys(e).length === 0) { setStep(2); setError(''); }
   }
 
-  // ── Step 2 → Step 3: create reservation + PaymentIntent ──
-  async function handleStep2Next() {
+  // ── Step 2 → Step 3: just move, no API calls until user chooses payment method ──
+  function handleStep2Next() {
     if (!agreed) { setErrs2({ terms: 'You must agree to the hire terms and conditions to proceed' }); return; }
     setErrs2({});
     setError('');
-    setTransitioning(true);
+    setStep(3);
+  }
 
+  // ── Step 3: employee code path ──
+  async function handleCodeSubmit() {
+    const trimmed = employeeCode.trim().toUpperCase();
+    if (trimmed.length !== 12) { setCodeErr('Please enter the full 12-character code'); return; }
+    setCodeErr('');
+    setCodeSubmitting(true);
+    setError('');
     try {
       const res = await createReservation({
         vehicle_id:     parseInt(vehicleId, 10),
         customer_name:  name,
         customer_email: email,
-        customer_phone: phone.replace(/\s/g, ''), // strip spaces — backend regex requires no spaces
+        customer_phone: phone.replace(/\s/g, ''),
+        intended_use:   use || undefined,
+        addons_json:    addons,
+        start_utc:      startUtc,
+        end_utc:        endUtc,
+        terms_accepted: true,
+        booking_code:   trimmed,
+      });
+      navigate('/booking/confirmation', { state: { reservation: res.data, vehicle } });
+    } catch (err) {
+      if (err.status === 409) {
+        setError('This vehicle was just booked by another customer. Please go back and choose a different time.');
+      } else if (err.status === 422 && err.message?.toLowerCase().includes('code')) {
+        setCodeErr(err.message);
+      } else {
+        setError(err.message || 'Booking failed. Please try again.');
+      }
+    } finally {
+      setCodeSubmitting(false);
+    }
+  }
+
+  // ── Step 3: card path — create reservation + PaymentIntent ──
+  async function handleCardContinue() {
+    setTransitioning(true);
+    setError('');
+    try {
+      const res = await createReservation({
+        vehicle_id:     parseInt(vehicleId, 10),
+        customer_name:  name,
+        customer_email: email,
+        customer_phone: phone.replace(/\s/g, ''),
         intended_use:   use || undefined,
         addons_json:    addons,
         start_utc:      startUtc,
         end_utc:        endUtc,
         terms_accepted: true,
       });
-
       const resv = res.data;
       setReservation(resv);
-
       const { client_secret } = await createPaymentIntent(resv.id);
       setClientSecret(client_secret);
-      setStep(3);
     } catch (err) {
       if (err.status === 409) {
-        setError('This vehicle was just booked by another customer. Please go back and choose a different vehicle or time.');
+        setError('This vehicle was just booked by another customer. Please go back and choose a different time.');
       } else if (err.status === 422 && err.data?.issues?.length) {
-        // Show the first specific field error from Zod rather than the generic "Validation failed"
         const first = err.data.issues[0];
-        const field = first.path?.join(' → ') || 'field';
-        setError(`Please check your details — ${first.message} (${field}). Go back to Step 1 to correct it.`);
+        setError(`Please check your details — ${first.message}. Go back to Step 1 to correct it.`);
       } else {
-        setError(err.message || 'Unable to set up booking. Please try again.');
+        setError(err.message || 'Unable to set up payment. Please try again.');
       }
     } finally {
       setTransitioning(false);
     }
   }
 
-  // ── Back from Step 3: cancel the reservation so the vehicle is freed up ──
+  // ── Back from Step 3 ──
   async function handleBackFromStep3() {
     if (reservation) {
       try {
         await cancelReservation(reservation.id, { customer_email: email, reason: 'Customer went back to modify booking' });
-      } catch (_) {
-        // Ignore errors — we still navigate back regardless
-      }
+      } catch (_) { /* ignore */ }
     }
     setReservation(null);
     setClientSecret(null);
+    setCodeInfo(null);
+    setCodeErr('');
+    setEmployeeCode('');
     setStep(2);
     setError('');
   }
@@ -456,22 +498,127 @@ export default function Booking() {
         </section>
       )}
 
-      {/* ===== Step 3: Stripe Payment ===== */}
+      {/* ===== Step 3: Payment ===== */}
       {step === 3 && (
         <section className="card p-6" aria-labelledby="step3-heading">
           <h2 id="step3-heading" className="text-xl font-semibold text-gray-900 mb-5">
             Step 3 of 3 — Payment
           </h2>
 
-          {clientSecret ? (
+          {/* Amount summary */}
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-5">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Total charge (incl. GST)</span>
+              <span className="font-bold text-gray-900 text-base">{formatAUDFromString(grandTotal.toFixed(2))} AUD</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">GST included: {formatAUDFromString(gst.toFixed(2))}</p>
+          </div>
+
+          {/* Payment option selector — only shown before Stripe is loaded */}
+          {!clientSecret && (
+            <div className="grid grid-cols-2 gap-3 mb-5">
+              <button
+                type="button"
+                onClick={() => { setPaymentOption('card'); setCodeErr(''); }}
+                className={`p-4 rounded-lg border-2 text-left transition-colors ${
+                  paymentOption === 'card'
+                    ? 'border-brand-600 bg-brand-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                  </svg>
+                  <span className="font-semibold text-sm text-gray-900">Pay by Card</span>
+                </div>
+                <p className="text-xs text-gray-500">Credit or debit card via Stripe</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setPaymentOption('code'); setError(''); }}
+                className={`p-4 rounded-lg border-2 text-left transition-colors ${
+                  paymentOption === 'code'
+                    ? 'border-brand-600 bg-brand-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                  </svg>
+                  <span className="font-semibold text-sm text-gray-900">Employee Code</span>
+                </div>
+                <p className="text-xs text-gray-500">Use a staff booking code — no card needed</p>
+              </button>
+            </div>
+          )}
+
+          {/* ── Employee code form ── */}
+          {paymentOption === 'code' && !clientSecret && (
+            <div>
+              <label htmlFor="emp-code" className="label">
+                Enter your booking code <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="emp-code"
+                type="text"
+                value={employeeCode}
+                onChange={e => { setEmployeeCode(e.target.value.toUpperCase()); setCodeErr(''); }}
+                maxLength={12}
+                placeholder="e.g. AB3C7KP!9MN2"
+                className={`input font-mono text-lg tracking-widest ${codeErr ? 'input-error' : ''}`}
+                aria-describedby={codeErr ? 'code-err' : 'code-hint'}
+                aria-required="true"
+              />
+              <p id="code-hint" className="text-xs text-gray-500 mt-1">
+                12-character code from your admin-issued booking email
+              </p>
+              {codeErr && <p id="code-err" className="error-text mt-1" role="alert">⚠ {codeErr}</p>}
+
+              <div className="flex justify-between mt-6 gap-4">
+                <button type="button" onClick={handleBackFromStep3} disabled={codeSubmitting} className="btn-secondary">
+                  ← Back
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCodeSubmit}
+                  disabled={codeSubmitting || employeeCode.length < 12}
+                  className="btn-primary flex-1"
+                >
+                  {codeSubmitting ? 'Processing…' : 'Complete Booking with Code'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Card payment ── */}
+          {paymentOption === 'card' && !clientSecret && (
+            <div>
+              <div className="flex justify-between gap-4">
+                <button type="button" onClick={handleBackFromStep3} disabled={transitioning} className="btn-secondary">
+                  ← Back
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCardContinue}
+                  disabled={transitioning}
+                  className="btn-primary flex-1"
+                >
+                  {transitioning ? 'Setting up payment…' : 'Continue to Card Payment →'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Stripe element (after Continue to Card Payment is clicked) ── */}
+          {paymentOption === 'card' && clientSecret && (
             <Elements
               stripe={stripePromise}
               options={{
                 clientSecret,
-                appearance: {
-                  theme: 'stripe',
-                  variables: { colorPrimary: '#2563eb', borderRadius: '8px' },
-                },
+                appearance: { theme: 'stripe', variables: { colorPrimary: '#2563eb', borderRadius: '8px' } },
               }}
             >
               <StripePaymentForm
@@ -486,11 +633,12 @@ export default function Booking() {
                 setGlobalError={setError}
               />
             </Elements>
-          ) : (
-            <div className="py-12 text-center text-gray-500" aria-live="polite">
-              <div className="animate-spin w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full mx-auto mb-3" aria-hidden="true" />
-              <p className="font-medium">Setting up secure payment…</p>
-              <p className="text-xs mt-1 text-gray-400">Connecting to Stripe — usually takes 2–5 seconds</p>
+          )}
+
+          {paymentOption === 'card' && !clientSecret && transitioning && (
+            <div className="py-6 text-center text-gray-500" aria-live="polite">
+              <div className="animate-spin w-6 h-6 border-2 border-brand-600 border-t-transparent rounded-full mx-auto mb-2" aria-hidden="true" />
+              <p className="text-sm">Connecting to Stripe…</p>
             </div>
           )}
         </section>

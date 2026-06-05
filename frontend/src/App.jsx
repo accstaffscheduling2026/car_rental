@@ -19,6 +19,8 @@ import AdminReservations from './pages/admin/Reservations.jsx';
 import AdminReservationDetail from './pages/admin/ReservationDetail.jsx';
 import AdminVehicles from './pages/admin/Vehicles.jsx';
 import AdminReports from './pages/admin/Reports.jsx';
+import AdminEmployees from './pages/admin/Employees.jsx';
+import AdminBookingCodes from './pages/admin/BookingCodes.jsx';
 import { useAdminAuth } from './hooks/useAdminAuth.js';
 
 function PublicLayout({ children }) {
@@ -73,6 +75,8 @@ export default function App() {
         <Route path="/admin/reservations/:id" element={<ProtectedAdmin><AdminLayout><AdminReservationDetail /></AdminLayout></ProtectedAdmin>} />
         <Route path="/admin/vehicles" element={<ProtectedAdmin><AdminLayout><AdminVehicles /></AdminLayout></ProtectedAdmin>} />
         <Route path="/admin/reports" element={<ProtectedAdmin><AdminLayout><AdminReports /></AdminLayout></ProtectedAdmin>} />
+        <Route path="/admin/employees" element={<ProtectedAdmin><AdminLayout><AdminEmployees /></AdminLayout></ProtectedAdmin>} />
+        <Route path="/admin/codes" element={<ProtectedAdmin><AdminLayout><AdminBookingCodes /></AdminLayout></ProtectedAdmin>} />
 
         {/* Fallback */}
         <Route path="*" element={<PublicLayout>

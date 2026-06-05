@@ -73,13 +73,17 @@ const availabilityRouter = require('./routes/availability');
 const reservationsRouter = require('./routes/reservations');
 const paymentsRouter    = require('./routes/payments');
 const adminRouter       = require('./routes/admin');
+const employeesRouter   = require('./routes/employees');
+const codesRouter       = require('./routes/codes');
 
-app.use('/api/v1/health',        healthRouter);
-app.use('/api/v1/vehicles',      vehiclesRouter);
-app.use('/api/v1/availability',  availabilityRouter);
-app.use('/api/v1/reservations',  bookingLimiter, reservationsRouter);
-app.use('/api/v1/payments',      paymentLimiter, paymentsRouter);
-app.use('/api/v1/admin',         adminRouter);
+app.use('/api/v1/health',              healthRouter);
+app.use('/api/v1/vehicles',            vehiclesRouter);
+app.use('/api/v1/availability',        availabilityRouter);
+app.use('/api/v1/reservations',        bookingLimiter, reservationsRouter);
+app.use('/api/v1/payments',            paymentLimiter, paymentsRouter);
+app.use('/api/v1/admin',               adminRouter);
+app.use('/api/v1/admin/employees',     employeesRouter);
+app.use('/api/v1/codes',               codesRouter);
 
 // ---------- Serve React build in production ----------
 const distPath = path.join(__dirname, '../frontend/dist');

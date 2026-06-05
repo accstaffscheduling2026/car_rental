@@ -125,4 +125,45 @@ async function sendStaffNewBooking(reservation, vehicle) {
   });
 }
 
-module.exports = { sendBookingConfirmation, sendCancellationConfirmation, sendStaffNewBooking, refNum };
+async function sendBookingCode(employee, code, expiresAt) {
+  if (!process.env.SMTP_HOST) return;
+
+  const expiry = sydneyDate(expiresAt);
+  const html = `
+<p>Dear ${employee.name},</p>
+<p>A booking code has been generated for you by <strong>${FACILITY}</strong> administration.</p>
+<hr/>
+<h2 style="font-size:28px;letter-spacing:4px;font-family:monospace;background:#f4f4f4;padding:16px;text-align:center;border-radius:8px;">${code}</h2>
+<hr/>
+<h3>How to use your code</h3>
+<ol>
+  <li>Go to <a href="${BASE_URL}">${BASE_URL}</a></li>
+  <li>Search for an available vehicle and select your dates</li>
+  <li>Complete your personal details (Steps 1 &amp; 2)</li>
+  <li>On the Payment step, select <strong>"I have an employee code"</strong></li>
+  <li>Enter the code above and complete your booking — no card required</li>
+</ol>
+<h3>Code Details</h3>
+<table>
+  <tr><td><strong>Employee ID:</strong></td><td>${employee.emp_id}</td></tr>
+  <tr><td><strong>Name:</strong></td><td>${employee.name}</td></tr>
+  <tr><td><strong>Expires:</strong></td><td>${expiry}</td></tr>
+  <tr><td><strong>Single use:</strong></td><td>This code can only be used once</td></tr>
+</table>
+<p style="color:#d32f2f;"><strong>Do not share this code.</strong> If you did not request this code, please contact administration immediately.</p>
+<hr/>
+<p style="font-size:12px;color:#666">
+  Questions? Call us: ${PHONE} | Email: ${EMAIL_ADR}<br/>
+  ${FACILITY} | ${ADDRESS}
+</p>
+`;
+
+  await getTransporter().sendMail({
+    from:    process.env.EMAIL_FROM || `${FACILITY} <${EMAIL_ADR}>`,
+    to:      employee.email,
+    subject: `Your booking code — ${FACILITY}`,
+    html,
+  });
+}
+
+module.exports = { sendBookingConfirmation, sendCancellationConfirmation, sendStaffNewBooking, sendBookingCode, refNum };
