@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { adminGetReservations, adminLogout } from '../../utils/api.js';
+import { Link } from 'react-router-dom';
+import { adminGetReservations } from '../../utils/api.js';
 import { formatSydney, formatAUDFromString, statusBadgeClass, paymentBadgeClass } from '../../utils/formatters.js';
 
 export default function AdminDashboard() {
-  const navigate = useNavigate();
   const [reservations, setReservations] = useState([]);
   const [loading, setLoading] = useState(true);
   const today = new Date().toISOString().slice(0, 10);
@@ -16,11 +15,6 @@ export default function AdminDashboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  async function handleLogout() {
-    await adminLogout().catch(() => {});
-    navigate('/admin/login');
-  }
-
   const pending    = reservations.filter(r => r.status === 'pending').length;
   const confirmed  = reservations.filter(r => r.status === 'confirmed').length;
   const pickedUp   = reservations.filter(r => r.status === 'picked_up').length;
@@ -30,19 +24,7 @@ export default function AdminDashboard() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-        <button onClick={handleLogout} className="btn-secondary text-sm py-2">Sign Out</button>
       </div>
-
-      {/* Nav */}
-      <nav aria-label="Admin navigation" className="flex flex-wrap gap-3 mb-8">
-        {[
-          { to: '/admin/reservations', label: 'Reservations' },
-          { to: '/admin/vehicles',     label: 'Vehicles' },
-          { to: '/admin/reports',      label: 'Reports' },
-        ].map(n => (
-          <Link key={n.to} to={n.to} className="btn-secondary text-sm py-2 px-4">{n.label}</Link>
-        ))}
-      </nav>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">

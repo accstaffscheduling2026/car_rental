@@ -22,6 +22,7 @@ import AdminReports from './pages/admin/Reports.jsx';
 import AdminEmployees from './pages/admin/Employees.jsx';
 import AdminBookingCodes from './pages/admin/BookingCodes.jsx';
 import { useAdminAuth } from './hooks/useAdminAuth.js';
+import AdminNav from './components/AdminNav.jsx';
 
 function PublicLayout({ children }) {
   return (
@@ -50,7 +51,12 @@ function ProtectedAdmin({ children }) {
   const { isAdmin, loading } = useAdminAuth();
   if (loading) return <div className="p-8 text-center text-gray-500">Loading…</div>;
   if (!isAdmin) return <Navigate to="/admin/login" replace />;
-  return children;
+  return (
+    <>
+      <AdminNav />
+      {children}
+    </>
+  );
 }
 
 export default function App() {
