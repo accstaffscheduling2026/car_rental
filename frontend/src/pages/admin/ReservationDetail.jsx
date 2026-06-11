@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { adminGetReservation, adminPatchReservation } from '../../utils/api.js';
+import { adminGetReservation, adminPatchReservation, adminCancelReservation } from '../../utils/api.js';
 import { formatSydney, formatAUDFromString, statusBadgeClass, paymentBadgeClass, refNum } from '../../utils/formatters.js';
 import { AlertSuccess, AlertError } from '../../components/Alert.jsx';
 
@@ -19,6 +19,10 @@ export default function AdminReservationDetail() {
   const [payment, setPayment] = useState('');
   const [notes,   setNotes]   = useState('');
 
+  const [cancelOpen,   setCancelOpen]   = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling,   setCancelling]   = useState(false);
+
   async function load() {
     setLoading(true);
     try {
@@ -32,6 +36,22 @@ export default function AdminReservationDetail() {
   }
 
   useEffect(() => { load(); }, [id]);
+
+  async function handleAdminCancel() {
+    setCancelling(true);
+    setError('');
+    try {
+      await adminCancelReservation(id, { reason: cancelReason || 'Cancelled by administration' });
+      setSuccess('Booking cancelled. Customer has been notified' + (r?.payment_status === 'paid' ? ' and a full Stripe refund has been processed.' : '.'));
+      setCancelOpen(false);
+      setCancelReason('');
+      load();
+    } catch (err) {
+      setError(err.message || 'Cancellation failed.');
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -92,6 +112,49 @@ export default function AdminReservationDetail() {
           <div><dt className="text-gray-500">Terms accepted</dt><dd>{r.terms_accepted ? `Yes — ${formatSydney(r.terms_accepted_at)}` : 'No'}</dd></div>
         </dl>
       </div>
+
+      {/* Admin Cancel */}
+      {!['cancelled', 'completed'].includes(r.status) && (
+        <div className="card p-6 mb-4 border border-red-100">
+          <h2 className="text-base font-semibold text-gray-900 mb-1">Cancel This Booking</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            Per our Terms &amp; Conditions (§2.5f), an admin-initiated cancellation entitles the customer to a
+            {r.payment_status === 'paid' ? ' full refund, processed immediately via Stripe.' : ' cancellation with no charge.'}
+          </p>
+          {!cancelOpen ? (
+            <button onClick={() => setCancelOpen(true)} className="btn-danger text-sm py-2">
+              Cancel This Booking
+            </button>
+          ) : (
+            <div className="space-y-3">
+              {r.payment_status === 'paid' && (
+                <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-3">
+                  This booking is <strong>paid (AUD ${r.price_aud})</strong>. Confirming will immediately
+                  charge Stripe and send the customer a full refund confirmation email.
+                </div>
+              )}
+              <div>
+                <label className="label text-xs">Reason <span className="font-normal text-gray-400">(internal — also sent to customer)</span></label>
+                <textarea
+                  value={cancelReason}
+                  onChange={e => setCancelReason(e.target.value)}
+                  rows={2}
+                  className="input resize-none text-sm"
+                  placeholder="e.g. Vehicle unavailable due to maintenance"
+                />
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => { setCancelOpen(false); setCancelReason(''); }} className="btn-secondary text-sm py-2">
+                  Keep Booking
+                </button>
+                <button onClick={handleAdminCancel} disabled={cancelling} className="btn-danger text-sm py-2">
+                  {cancelling ? 'Cancelling…' : 'Confirm Cancellation'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Update */}
       <div className="card p-6">

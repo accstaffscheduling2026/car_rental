@@ -6,15 +6,20 @@ const GST_RATE = parseFloat(process.env.GST_RATE || '0.10');
  * @param {number} dailyRateCents
  * @param {Date} start
  * @param {Date} end
+ * @param {number} [discountPercent=0] - special rate discount applied to daily rate only
  * @returns {{ totalCents, gstCents, subtotalCents, hours }}
  */
-function calcPrice(hourlyRateCents, dailyRateCents, start, end) {
+function calcPrice(hourlyRateCents, dailyRateCents, start, end, discountPercent = 0) {
   const ms = end.getTime() - start.getTime();
   const hours = ms / (1000 * 60 * 60);
   const days = Math.floor(hours / 24);
   const remainingHours = hours % 24;
 
-  let totalCents = days * dailyRateCents + Math.ceil(remainingHours) * hourlyRateCents;
+  const effectiveDailyRate = discountPercent > 0
+    ? Math.round(dailyRateCents * (1 - discountPercent / 100))
+    : dailyRateCents;
+
+  let totalCents = days * effectiveDailyRate + Math.ceil(remainingHours) * hourlyRateCents;
   if (totalCents === 0 && hours > 0) totalCents = hourlyRateCents;
 
   // Prices are GST-inclusive per spec. Extract GST component.

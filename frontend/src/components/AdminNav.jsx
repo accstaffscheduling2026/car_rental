@@ -3,12 +3,14 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { adminLogout } from '../utils/api.js';
 
 const NAV_ITEMS = [
-  { to: '/admin/dashboard',   label: 'Dashboard'    },
-  { to: '/admin/reservations',label: 'Reservations' },
-  { to: '/admin/vehicles',    label: 'Vehicles'     },
-  { to: '/admin/employees',   label: 'Employees'    },
-  { to: '/admin/codes',       label: 'Booking Codes'},
-  { to: '/admin/reports',     label: 'Reports'      },
+  { to: '/admin/dashboard',    label: 'Dashboard'    },
+  { to: '/admin/reservations', label: 'Reservations' },
+  { to: '/admin/vehicles',     label: 'Vehicles'     },
+  { to: '/admin/employees',    label: 'Employees'    },
+  { to: '/admin/codes',        label: 'Booking Codes'},
+  { to: '/admin/promo-codes',      label: 'Promo Codes'  },
+  { to: '/admin/refund-requests',  label: 'Refunds'      },
+  { to: '/admin/reports',          label: 'Reports'      },
 ];
 
 export default function AdminNav() {

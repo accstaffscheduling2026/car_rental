@@ -75,6 +75,10 @@ const paymentsRouter    = require('./routes/payments');
 const adminRouter       = require('./routes/admin');
 const employeesRouter   = require('./routes/employees');
 const codesRouter       = require('./routes/codes');
+const promoRouter       = require('./routes/promo');
+const publicRouter      = require('./routes/public');
+const authRouter        = require('./routes/auth');
+const myBookingsRouter  = require('./routes/myBookings');
 
 app.use('/api/v1/health',              healthRouter);
 app.use('/api/v1/vehicles',            vehiclesRouter);
@@ -84,6 +88,10 @@ app.use('/api/v1/payments',            paymentLimiter, paymentsRouter);
 app.use('/api/v1/admin',               adminRouter);
 app.use('/api/v1/admin/employees',     employeesRouter);
 app.use('/api/v1/codes',               codesRouter);
+app.use('/api/v1/promo',               bookingLimiter, promoRouter);
+app.use('/api/v1/public',              publicRouter);
+app.use('/api/v1/auth',               authRouter);
+app.use('/api/v1/my-bookings',        myBookingsRouter);
 
 // ---------- Serve React build in production ----------
 const distPath = path.join(__dirname, '../frontend/dist');

@@ -39,6 +39,12 @@ export async function verifyPayment(paymentIntentId, reservationId) {
 // Booking codes (public)
 export async function validateBookingCode(code)         { return api.post('/codes/validate', { code }); }
 
+// Promo codes (public)
+export async function validatePromoCode(code)           { return api.post('/promo/validate', { code }); }
+
+// Public settings
+export async function getCancellationPolicy()           { return api.get('/public/cancellation-policy'); }
+
 // Admin
 export async function adminLogin(body)                  { return api.post('/admin/login', body); }
 export async function adminLogout()                     { return api.post('/admin/logout'); }
@@ -49,6 +55,7 @@ export async function adminGetReservations(params = {}) {
 }
 export async function adminGetReservation(id)           { return api.get(`/admin/reservations/${id}`); }
 export async function adminPatchReservation(id, body)   { return api.patch(`/admin/reservations/${id}`, body); }
+export async function adminCancelReservation(id, body)  { return api.post(`/admin/reservations/${id}/cancel`, body); }
 export async function adminGetVehicles()                { return api.get('/admin/vehicles'); }
 export async function adminCreateVehicle(body)          { return api.post('/admin/vehicles', body); }
 export async function adminPatchVehicle(id, body)       { return api.patch(`/admin/vehicles/${id}`, body); }
@@ -64,3 +71,32 @@ export async function adminDeleteEmployee(id)                       { return api
 export async function adminGenerateCode(employeeId)                 { return api.post(`/admin/employees/${employeeId}/generate-code`, {}); }
 export async function adminGetAllCodes()                            { return api.get('/admin/employees/codes/all'); }
 export async function adminDisableCode(codeId)                      { return api.patch(`/admin/employees/codes/${codeId}/disable`, {}); }
+
+// Admin settings
+export async function adminGetSettings()                            { return api.get('/admin/settings'); }
+export async function adminPatchSettings(body)                      { return api.patch('/admin/settings', body); }
+
+// Admin promo codes
+export async function adminGetPromoCodes()                          { return api.get('/admin/promo-codes'); }
+export async function adminGeneratePromoCodes(body)                 { return api.post('/admin/promo-codes', body); }
+export async function adminDisablePromoCode(id)                     { return api.patch(`/admin/promo-codes/${id}/disable`, {}); }
+
+// Admin refund requests
+export async function adminGetRefundRequests(params = {})           {
+  const qs = new URLSearchParams(params).toString();
+  return api.get(`/admin/refund-requests${qs ? '?' + qs : ''}`);
+}
+export async function adminGetRefundRequest(id)                     { return api.get(`/admin/refund-requests/${id}`); }
+export async function adminApproveRefund(id, body = {})             { return api.post(`/admin/refund-requests/${id}/approve`, body); }
+export async function adminRejectRefund(id, body = {})              { return api.post(`/admin/refund-requests/${id}/reject`, body); }
+
+// Customer auth
+export async function userRegister(body)         { return api.post('/auth/register', body); }
+export async function userLogin(body)            { return api.post('/auth/login', body); }
+export async function userLogout()               { return api.post('/auth/logout'); }
+export async function userMe()                   { return api.get('/auth/me'); }
+export async function userPatchProfile(body)     { return api.patch('/auth/profile', body); }
+
+// My Bookings
+export async function getMyBookings()            { return api.get('/my-bookings'); }
+export async function submitFeedback(id, body)   { return api.post(`/my-bookings/${id}/feedback`, body); }

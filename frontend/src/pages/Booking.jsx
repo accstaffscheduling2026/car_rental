@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { stripePromise } from '../utils/stripe.js';
-import { getVehicle, createReservation, createPaymentIntent, cancelReservation, validateBookingCode } from '../utils/api.js';
+import { getVehicle, createReservation, createPaymentIntent, cancelReservation, validateBookingCode, validatePromoCode } from '../utils/api.js';
+import { useUserAuth } from '../hooks/useUserAuth.js';
 import BookingProgress from '../components/BookingProgress.jsx';
 import { AlertError, AlertInfo } from '../components/Alert.jsx';
 import { formatAUDFromString, formatSydney } from '../utils/formatters.js';
@@ -206,6 +207,7 @@ export default function Booking() {
   const [searchParams] = useSearchParams();
   const navigate       = useNavigate();
   const headingRef     = useRef(null);
+  const { user }       = useUserAuth();
 
   const vehicleId = searchParams.get('vehicle_id');
   const startUtc  = searchParams.get('start');
@@ -229,6 +231,12 @@ export default function Booking() {
   const [agreed, setAgreed] = useState(false);
   const [errs2,  setErrs2]  = useState({});
 
+  // Promo code (special rate discount)
+  const [promoCode,       setPromoCode]       = useState('');
+  const [promoApplied,    setPromoApplied]    = useState(null); // { code, discount_percent }
+  const [promoErr,        setPromoErr]        = useState('');
+  const [promoChecking,   setPromoChecking]   = useState(false);
+
   // Step 3 — payment option
   const [paymentOption, setPaymentOption]   = useState('card'); // 'card' | 'code'
   const [employeeCode,  setEmployeeCode]    = useState('');
@@ -245,22 +253,50 @@ export default function Booking() {
     getVehicle(vehicleId).then(r => setVehicle(r.data)).catch(() => navigate('/availability'));
   }, [vehicleId]);
 
+  useEffect(() => {
+    if (user && step === 1) {
+      if (!name)  setName(user.name  || '');
+      if (!email) setEmail(user.email || '');
+      if (!phone) setPhone(user.phone || '');
+    }
+  }, [user]);
+
   useEffect(() => { headingRef.current?.focus(); }, [step]);
 
   if (!vehicle) return (
     <div className="max-w-2xl mx-auto px-4 py-16 text-center text-gray-500" aria-live="polite">Loading…</div>
   );
 
-  const hourlyRate  = parseFloat(vehicle.hourly_rate_aud);
-  const dailyRate   = parseFloat(vehicle.daily_rate_aud);
-  const ms          = startUtc && endUtc ? new Date(endUtc) - new Date(startUtc) : 0;
-  const hours       = ms / 3600000;
-  const days        = Math.floor(hours / 24);
-  const remH        = Math.ceil(hours % 24);
-  const rentalTotal = days * dailyRate + remH * hourlyRate;
-  const addonsTotal = addons.reduce((s, a) => s + (ADDON_PRICES[a] || 0), 0);
-  const grandTotal  = rentalTotal + addonsTotal;
-  const gst         = grandTotal * 10 / 110;
+  const hourlyRate       = parseFloat(vehicle.hourly_rate_aud);
+  const dailyRate        = parseFloat(vehicle.daily_rate_aud);
+  const ms               = startUtc && endUtc ? new Date(endUtc) - new Date(startUtc) : 0;
+  const hours            = ms / 3600000;
+  const days             = Math.floor(hours / 24);
+  const remH             = Math.ceil(hours % 24);
+  const discountPct      = promoApplied?.discount_percent || 0;
+  const effectiveDailyRate = dailyRate * (1 - discountPct / 100);
+  const rentalTotal      = days * effectiveDailyRate + remH * hourlyRate;
+  const rentalNoDiscount = days * dailyRate + remH * hourlyRate;
+  const addonsTotal      = addons.reduce((s, a) => s + (ADDON_PRICES[a] || 0), 0);
+  const grandTotal       = rentalTotal + addonsTotal;
+  const grandNoDiscount  = rentalNoDiscount + addonsTotal;
+  const gst              = grandTotal * 10 / 110;
+
+  // ── Promo code ──
+  async function handleApplyPromo() {
+    const trimmed = promoCode.trim().toUpperCase();
+    if (!trimmed) { setPromoErr('Please enter a promo code'); return; }
+    setPromoErr('');
+    setPromoChecking(true);
+    try {
+      const res = await validatePromoCode(trimmed);
+      setPromoApplied({ code: res.code, discount_percent: res.discount_percent });
+    } catch (err) {
+      setPromoErr(err.message || 'Invalid promo code');
+    } finally {
+      setPromoChecking(false);
+    }
+  }
 
   // ── Step 1 ──
   function validateStep1() {
@@ -337,6 +373,7 @@ export default function Booking() {
         start_utc:      startUtc,
         end_utc:        endUtc,
         terms_accepted: true,
+        promo_code:     promoApplied?.code || undefined,
       });
       const resv = res.data;
       setReservation(resv);
@@ -392,9 +429,19 @@ export default function Booking() {
                 {formatSydney(startUtc)} → {formatSydney(endUtc)}
               </p>
             )}
+            {promoApplied && (
+              <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+                {promoApplied.discount_percent}% special rate applied
+              </span>
+            )}
           </div>
           <div className="text-right">
-            <p className="font-bold text-lg text-gray-900">{formatAUDFromString(grandTotal.toFixed(2))}</p>
+            {promoApplied && (
+              <p className="text-xs text-gray-400 line-through">{formatAUDFromString(grandNoDiscount.toFixed(2))}</p>
+            )}
+            <p className={`font-bold text-lg ${promoApplied ? 'text-green-700' : 'text-gray-900'}`}>
+              {formatAUDFromString(grandTotal.toFixed(2))}
+            </p>
             <p className="text-xs text-gray-500">incl. GST</p>
           </div>
         </div>
@@ -417,6 +464,29 @@ export default function Booking() {
           <h2 id="step1-heading" className="text-xl font-semibold text-gray-900 mb-5">
             Step 1 of 3 — Personal Details
           </h2>
+
+          {!user && (
+            <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 mb-5">
+              <svg className="w-5 h-5 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              <p className="text-sm text-blue-700 flex-1">
+                <Link to="/login" state={{ from: '/booking' + window.location.search }}
+                  className="font-semibold underline hover:text-blue-800">Sign in</Link>{' '}
+                to auto-fill your details and track this booking in My Bookings.
+              </p>
+            </div>
+          )}
+
+          {user && (
+            <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-4 py-2.5 mb-5 text-sm text-green-700">
+              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Signed in as <strong className="ml-1">{user.name}</strong> — details pre-filled. You can still edit them below.
+            </div>
+          )}
+
           <div className="space-y-4">
             <div>
               <label htmlFor="cust-name" className="label">Full name <span className="text-red-500" aria-label="required">*</span></label>
@@ -447,6 +517,57 @@ export default function Booking() {
                 className="input resize-none" />
             </div>
           </div>
+          {/* Promo code */}
+          <div className="border-t border-gray-200 pt-4 mt-2">
+            <p className="text-sm font-medium text-gray-700 mb-2">
+              Promo code{' '}
+              <span className="font-normal text-gray-400">(optional — unlocks special rate)</span>
+            </p>
+            {promoApplied ? (
+              <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-lg p-3">
+                <svg className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="flex-1 text-sm">
+                  <p className="font-semibold text-green-800">
+                    Special rate applied — {promoApplied.discount_percent}% off daily rate
+                  </p>
+                  <p className="text-green-700 font-mono text-xs mt-0.5">{promoApplied.code}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setPromoApplied(null); setPromoCode(''); setPromoErr(''); }}
+                  className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                  aria-label="Remove promo code"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={promoCode}
+                  onChange={e => { setPromoCode(e.target.value.toUpperCase()); setPromoErr(''); }}
+                  onKeyDown={e => e.key === 'Enter' && handleApplyPromo()}
+                  placeholder="Enter promo code"
+                  className={`input flex-1 font-mono uppercase tracking-widest ${promoErr ? 'input-error' : ''}`}
+                  maxLength={12}
+                  aria-describedby={promoErr ? 'promo-err' : undefined}
+                />
+                <button
+                  type="button"
+                  onClick={handleApplyPromo}
+                  disabled={promoChecking || !promoCode.trim()}
+                  className="btn-secondary whitespace-nowrap"
+                >
+                  {promoChecking ? 'Checking…' : 'Apply'}
+                </button>
+              </div>
+            )}
+            {promoErr && <p id="promo-err" className="error-text mt-1" role="alert">⚠ {promoErr}</p>}
+          </div>
+
           <div className="flex justify-end mt-6">
             <button onClick={handleStep1Next} className="btn-primary">Next: Terms &amp; Conditions →</button>
           </div>

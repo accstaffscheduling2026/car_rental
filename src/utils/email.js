@@ -103,6 +103,129 @@ Phone: ${PHONE}<br/>Email: ${EMAIL_ADR}</p>
   });
 }
 
+async function sendCancellationWithRefund(reservation, refundCents, refundPct) {
+  if (!process.env.SMTP_HOST) return;
+
+  const ref = refNum(reservation.id, reservation.created_at);
+  const refundAmt = `AUD $${(refundCents / 100).toFixed(2)}`;
+
+  const refundSection = refundCents > 0
+    ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:16px 0;">
+        <h3 style="color:#166534;margin:0 0 8px;">Refund Information</h3>
+        <p style="margin:0;">A refund of <strong>${refundAmt}</strong> (${refundPct}% of total hire cost) will be processed within <strong>7–10 business days</strong>, subject to our review.</p>
+        <p style="margin:8px 0 0;font-size:13px;color:#15803d;">You will receive a separate email once the refund has been approved and processed.</p>
+       </div>`
+    : `<p>No refund applies to this cancellation based on our cancellation policy.</p>`;
+
+  const html = `
+<p>Dear ${reservation.customer_name},</p>
+<p>Your booking <strong>${ref}</strong> has been cancelled.</p>
+${refundSection}
+<p>If you have any questions, please contact us:<br/>
+Phone: ${PHONE}<br/>Email: ${EMAIL_ADR}</p>
+<hr/>
+<p style="font-size:12px;color:#666">
+  <a href="${BASE_URL}/privacy">Privacy Policy</a> |
+  <a href="${BASE_URL}/terms">Terms &amp; Conditions</a><br/>
+  ${FACILITY} | ${ADDRESS}
+</p>
+`;
+
+  await getTransporter().sendMail({
+    from:    process.env.EMAIL_FROM || `${FACILITY} <${EMAIL_ADR}>`,
+    to:      reservation.customer_email,
+    subject: `Your booking has been cancelled — ${ref}`,
+    html,
+  });
+}
+
+async function sendRefundApproved(reservation, refundCents) {
+  if (!process.env.SMTP_HOST) return;
+
+  const ref = refNum(reservation.id, reservation.created_at);
+  const refundAmt = `AUD $${(refundCents / 100).toFixed(2)}`;
+
+  const html = `
+<p>Dear ${reservation.customer_name},</p>
+<p>We are pleased to confirm that your refund for booking <strong>${ref}</strong> has been approved.</p>
+<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:16px 0;">
+  <h3 style="color:#166534;margin:0 0 8px;">Refund Approved</h3>
+  <p style="margin:0;"><strong>Amount:</strong> ${refundAmt}</p>
+  <p style="margin:8px 0 0;">Please allow <strong>7–10 business days</strong> for the funds to appear on your original payment method.</p>
+</div>
+<p>If you have any questions, please contact us:<br/>
+Phone: ${PHONE}<br/>Email: ${EMAIL_ADR}</p>
+<hr/>
+<p style="font-size:12px;color:#666">${FACILITY} | ${ADDRESS}</p>
+`;
+
+  await getTransporter().sendMail({
+    from:    process.env.EMAIL_FROM || `${FACILITY} <${EMAIL_ADR}>`,
+    to:      reservation.customer_email,
+    subject: `Refund approved — ${ref}`,
+    html,
+  });
+}
+
+async function sendStaffRefundTask(reservation, refundRequest) {
+  if (!process.env.SMTP_HOST || !process.env.FACILITY_EMAIL) return;
+
+  const ref = refNum(reservation.id, reservation.created_at);
+  const refundAmt = `AUD $${(refundRequest.refund_cents / 100).toFixed(2)}`;
+
+  const html = `
+<p><strong>Refund review required: ${ref}</strong></p>
+<table>
+  <tr><td><strong>Customer:</strong></td><td>${reservation.customer_name}</td></tr>
+  <tr><td><strong>Email:</strong></td><td>${reservation.customer_email}</td></tr>
+  <tr><td><strong>Refund Amount:</strong></td><td>${refundAmt} (${refundRequest.refund_pct}%)</td></tr>
+</table>
+<p>Please log in to the admin portal to review and approve or reject this refund request.</p>
+<p><a href="${BASE_URL}/admin/refund-requests">View Refund Requests</a></p>
+`;
+
+  await getTransporter().sendMail({
+    from:    process.env.EMAIL_FROM || `${FACILITY} <${EMAIL_ADR}>`,
+    to:      EMAIL_ADR,
+    subject: `[Action Required] Refund review — ${ref}`,
+    html,
+  });
+}
+
+async function sendAdminCancelledEmail(reservation, refundCents) {
+  if (!process.env.SMTP_HOST) return;
+
+  const ref = refNum(reservation.id, reservation.created_at);
+  const refundSection = refundCents > 0
+    ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:16px 0;">
+        <h3 style="color:#166534;margin:0 0 8px;">Full Refund Processed</h3>
+        <p style="margin:0;">A full refund of <strong>AUD $${(refundCents / 100).toFixed(2)}</strong> has been initiated to your original payment method.</p>
+        <p style="margin:8px 0 0;font-size:13px;color:#15803d;">Please allow 7–10 business days for the funds to appear on your statement.</p>
+       </div>`
+    : '';
+
+  const html = `
+<p>Dear ${reservation.customer_name},</p>
+<p>We regret to inform you that your booking <strong>${ref}</strong> has been cancelled by us.</p>
+${refundSection}
+<p>We sincerely apologise for any inconvenience caused. If you have any questions, please contact us:<br/>
+Phone: ${PHONE}<br/>Email: ${EMAIL_ADR}</p>
+<hr/>
+<p style="font-size:12px;color:#666">
+  <a href="${BASE_URL}/privacy">Privacy Policy</a> |
+  <a href="${BASE_URL}/terms">Terms &amp; Conditions</a><br/>
+  ${FACILITY} | ${ADDRESS}
+</p>
+`;
+
+  await getTransporter().sendMail({
+    from:    process.env.EMAIL_FROM || `${FACILITY} <${EMAIL_ADR}>`,
+    to:      reservation.customer_email,
+    subject: `Important: Your booking has been cancelled — ${ref}`,
+    html,
+  });
+}
+
 async function sendStaffNewBooking(reservation, vehicle) {
   if (!process.env.SMTP_HOST || !process.env.FACILITY_EMAIL) return;
 
@@ -166,4 +289,14 @@ async function sendBookingCode(employee, code, expiresAt) {
   });
 }
 
-module.exports = { sendBookingConfirmation, sendCancellationConfirmation, sendStaffNewBooking, sendBookingCode, refNum };
+module.exports = {
+  sendBookingConfirmation,
+  sendCancellationConfirmation,
+  sendCancellationWithRefund,
+  sendAdminCancelledEmail,
+  sendRefundApproved,
+  sendStaffRefundTask,
+  sendStaffNewBooking,
+  sendBookingCode,
+  refNum,
+};

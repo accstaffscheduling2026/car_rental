@@ -13,6 +13,8 @@ import Confirmation from './pages/Confirmation.jsx';
 import CancelPage from './pages/Cancel.jsx';
 import Privacy from './pages/Privacy.jsx';
 import Terms from './pages/Terms.jsx';
+import AuthPage from './pages/AuthPage.jsx';
+import MyBookings from './pages/MyBookings.jsx';
 import AdminLogin from './pages/admin/Login.jsx';
 import AdminDashboard from './pages/admin/Dashboard.jsx';
 import AdminReservations from './pages/admin/Reservations.jsx';
@@ -21,7 +23,10 @@ import AdminVehicles from './pages/admin/Vehicles.jsx';
 import AdminReports from './pages/admin/Reports.jsx';
 import AdminEmployees from './pages/admin/Employees.jsx';
 import AdminBookingCodes from './pages/admin/BookingCodes.jsx';
+import AdminPromoCodes from './pages/admin/PromoCodes.jsx';
+import AdminRefundRequests from './pages/admin/RefundRequests.jsx';
 import { useAdminAuth } from './hooks/useAdminAuth.js';
+import { UserAuthProvider } from './hooks/useUserAuth.js';
 import AdminNav from './components/AdminNav.jsx';
 
 function PublicLayout({ children }) {
@@ -62,37 +67,45 @@ function ProtectedAdmin({ children }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        {/* Public */}
-        <Route path="/" element={<PublicLayout><Landing /></PublicLayout>} />
-        <Route path="/availability" element={<PublicLayout><Availability /></PublicLayout>} />
-        <Route path="/vehicles/:id" element={<PublicLayout><VehicleDetail /></PublicLayout>} />
-        <Route path="/booking" element={<PublicLayout><Booking /></PublicLayout>} />
-        <Route path="/booking/confirmation" element={<PublicLayout><Confirmation /></PublicLayout>} />
-        <Route path="/cancel/:id" element={<PublicLayout><CancelPage /></PublicLayout>} />
-        <Route path="/privacy" element={<PublicLayout><Privacy /></PublicLayout>} />
-        <Route path="/terms" element={<PublicLayout><Terms /></PublicLayout>} />
+      <UserAuthProvider>
+        <Routes>
+          {/* Public */}
+          <Route path="/" element={<PublicLayout><Landing /></PublicLayout>} />
+          <Route path="/availability" element={<PublicLayout><Availability /></PublicLayout>} />
+          <Route path="/vehicles/:id" element={<PublicLayout><VehicleDetail /></PublicLayout>} />
+          <Route path="/booking" element={<PublicLayout><Booking /></PublicLayout>} />
+          <Route path="/booking/confirmation" element={<PublicLayout><Confirmation /></PublicLayout>} />
+          <Route path="/cancel/:id" element={<PublicLayout><CancelPage /></PublicLayout>} />
+          <Route path="/privacy" element={<PublicLayout><Privacy /></PublicLayout>} />
+          <Route path="/terms" element={<PublicLayout><Terms /></PublicLayout>} />
+          <Route path="/login" element={<PublicLayout><AuthPage /></PublicLayout>} />
+          <Route path="/my-bookings" element={<PublicLayout><MyBookings /></PublicLayout>} />
 
-        {/* Admin */}
-        <Route path="/admin/login" element={<AdminLayout><AdminLogin /></AdminLayout>} />
-        <Route path="/admin" element={<ProtectedAdmin><AdminLayout><AdminDashboard /></AdminLayout></ProtectedAdmin>} />
-        <Route path="/admin/dashboard" element={<ProtectedAdmin><AdminLayout><AdminDashboard /></AdminLayout></ProtectedAdmin>} />
-        <Route path="/admin/reservations" element={<ProtectedAdmin><AdminLayout><AdminReservations /></AdminLayout></ProtectedAdmin>} />
-        <Route path="/admin/reservations/:id" element={<ProtectedAdmin><AdminLayout><AdminReservationDetail /></AdminLayout></ProtectedAdmin>} />
-        <Route path="/admin/vehicles" element={<ProtectedAdmin><AdminLayout><AdminVehicles /></AdminLayout></ProtectedAdmin>} />
-        <Route path="/admin/reports" element={<ProtectedAdmin><AdminLayout><AdminReports /></AdminLayout></ProtectedAdmin>} />
-        <Route path="/admin/employees" element={<ProtectedAdmin><AdminLayout><AdminEmployees /></AdminLayout></ProtectedAdmin>} />
-        <Route path="/admin/codes" element={<ProtectedAdmin><AdminLayout><AdminBookingCodes /></AdminLayout></ProtectedAdmin>} />
+          {/* Admin */}
+          <Route path="/admin/login" element={<AdminLayout><AdminLogin /></AdminLayout>} />
+          <Route path="/admin" element={<ProtectedAdmin><AdminLayout><AdminDashboard /></AdminLayout></ProtectedAdmin>} />
+          <Route path="/admin/dashboard" element={<ProtectedAdmin><AdminLayout><AdminDashboard /></AdminLayout></ProtectedAdmin>} />
+          <Route path="/admin/reservations" element={<ProtectedAdmin><AdminLayout><AdminReservations /></AdminLayout></ProtectedAdmin>} />
+          <Route path="/admin/reservations/:id" element={<ProtectedAdmin><AdminLayout><AdminReservationDetail /></AdminLayout></ProtectedAdmin>} />
+          <Route path="/admin/vehicles" element={<ProtectedAdmin><AdminLayout><AdminVehicles /></AdminLayout></ProtectedAdmin>} />
+          <Route path="/admin/reports" element={<ProtectedAdmin><AdminLayout><AdminReports /></AdminLayout></ProtectedAdmin>} />
+          <Route path="/admin/employees" element={<ProtectedAdmin><AdminLayout><AdminEmployees /></AdminLayout></ProtectedAdmin>} />
+          <Route path="/admin/codes" element={<ProtectedAdmin><AdminLayout><AdminBookingCodes /></AdminLayout></ProtectedAdmin>} />
+          <Route path="/admin/promo-codes" element={<ProtectedAdmin><AdminLayout><AdminPromoCodes /></AdminLayout></ProtectedAdmin>} />
+          <Route path="/admin/refund-requests" element={<ProtectedAdmin><AdminLayout><AdminRefundRequests /></AdminLayout></ProtectedAdmin>} />
 
-        {/* Fallback */}
-        <Route path="*" element={<PublicLayout>
-          <div className="max-w-2xl mx-auto px-4 py-20 text-center">
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">Page Not Found</h1>
-            <p className="text-gray-600 mb-8">The page you're looking for doesn't exist.</p>
-            <a href="/" className="btn-primary">Return Home</a>
-          </div>
-        </PublicLayout>} />
-      </Routes>
+          {/* Fallback */}
+          <Route path="*" element={
+            <PublicLayout>
+              <div className="max-w-2xl mx-auto px-4 py-20 text-center">
+                <h1 className="text-4xl font-bold text-gray-900 mb-4">Page Not Found</h1>
+                <p className="text-gray-600 mb-8">The page you're looking for doesn't exist.</p>
+                <a href="/" className="btn-primary">Return Home</a>
+              </div>
+            </PublicLayout>
+          } />
+        </Routes>
+      </UserAuthProvider>
     </BrowserRouter>
   );
 }
