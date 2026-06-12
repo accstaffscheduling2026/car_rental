@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { to: '/admin/promo-codes',      label: 'Promo Codes'  },
   { to: '/admin/refund-requests',  label: 'Refunds'      },
   { to: '/admin/reports',          label: 'Reports'      },
+  { to: '/admin/site-settings',    label: 'Site Settings'},
 ];
 
 export default function AdminNav() {

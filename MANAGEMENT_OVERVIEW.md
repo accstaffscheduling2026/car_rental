@@ -1,7 +1,7 @@
 # SwiftRide Rentals — Management Overview
 ## Special Need Vehicle Rental Platform
 
-**Prepared:** June 2026 (updated with employee booking codes feature)
+**Prepared:** June 2026 (updated with customer accounts, promo codes, refund workflow, and enterprise redesign)
 **Business:** SwiftRide Rentals Pty Ltd
 **Address:** 483 Hume Highway, Yagoona NSW 2199
 **Phone:** 0434 620 086
@@ -34,25 +34,33 @@ The facility operates a fleet of 100 vehicles — wheelchair-accessible vans, pe
 - Search availability for any date and time range
 - Book a vehicle online in under 5 minutes
 - Pay securely by credit or debit card (processed by Stripe)
+- Apply a **promo code** to unlock a discounted special rate (different discount levels for different customer groups)
 - Receive instant booking confirmation by email
-- Self-cancel bookings via a link in the confirmation email
+- Self-cancel bookings via a link in the confirmation email; refund processed within 7–10 business days
+- **Create an account** (optional) — details auto-fill on future bookings, all bookings visible in one place
+- **My Bookings** — view active bookings, cancel, and leave star-rating feedback on completed hires
 
 ### For Staff (Admin)
 - View all bookings in a dashboard — today, this week, upcoming
 - Confirm, update, and manage reservation statuses
-- Manage the vehicle fleet — add vehicles, set maintenance windows
+- **Cancel any booking** — triggers an immediate full Stripe refund (compliant with T&C §2.5f)
+- **Refund requests queue** — review and approve customer-initiated cancellation refunds before they are processed
+- Manage the vehicle fleet — add vehicles, set hourly and daily rates
 - Export booking and revenue reports as CSV
 - Full audit trail of all actions
-- **Employee management** — add staff to the system with their ID, name, email and phone
-- **Generate booking codes** — issue a one-time code to any employee so they can book a vehicle at no charge; code is emailed instantly and expires in 24 hours
-- **Manage codes** — view all codes (active, used, expired, disabled) and disable any active code at any time
+- **Employee management** — add staff, generate one-time booking codes (emailed automatically, 24-hour expiry)
+- **Manage booking codes** — view all codes (active/used/expired/disabled), disable any active code
+- **Promo codes** — generate batches of one-time discount codes; each batch carries its own discount percentage so different customer groups can receive different rates (e.g. 15% for standard, 25% for VIP)
+- **Cancellation policy** — configure full-refund and partial-refund time windows without needing developer involvement
 
 ### What It Does Automatically
 - Prevents double-bookings — no two customers can book the same vehicle at the same time
-- Calculates prices — hourly and daily rates, add-ons, GST-inclusive totals
-- Sends confirmation emails to customers and alert emails to staff
+- Calculates prices — hourly and daily rates, add-ons, promo discounts, GST-inclusive totals
+- Sends confirmation and cancellation emails to customers; booking alerts to staff
+- Sends refund approval emails telling customers to expect payment within 7–10 business days
 - Displays all times in Sydney time (AEST/AEDT)
 - Records terms acceptance with a legal timestamp for each booking
+- Auto-expires promo codes and employee booking codes past their expiry date
 
 ---
 
@@ -170,7 +178,36 @@ The payment flow using Stripe:
 
 ---
 
-## 9. Employee Booking Codes
+## 9. Promo Codes & Special Rates
+
+Promo codes allow selected customers to access a discounted daily rate. Unlike a single global discount, each batch of codes carries its own percentage — so different customer groups can receive different offers simultaneously.
+
+### How It Works
+
+**Admin side:**
+1. Go to Admin → **Promo Codes & Rates**
+2. Click **+ Generate Codes**, enter a discount percentage (e.g. 20%) and how many codes to create
+3. Optionally set an expiry date
+4. Codes are created instantly — distribute them to customers directly (email, letter, phone)
+5. Used, expired, and disabled codes are all visible in the table
+
+**Customer side:**
+1. On the booking form (Step 1), the customer enters their promo code in the "Have a promo code?" field
+2. If valid, the discount is applied to the daily rate immediately and shown on screen
+3. The code is single-use — it is marked as used when the booking is completed
+
+### Code Properties
+
+| Property | Detail |
+|---|---|
+| Discount | Set per batch — e.g. 15% off, 25% off, 30% off |
+| Usage | Single use only |
+| Expiry | Optional — leave blank for codes that never expire |
+| Status | active → used (or expired / disabled) |
+
+---
+
+## 10. Employee Booking Codes
 
 Staff members can be issued a one-time booking code that allows them to hire a vehicle without making a payment. This is useful for staff benefits, community hire, or facility-approved bookings.
 
@@ -210,7 +247,23 @@ Staff members can be issued a one-time booking code that allows them to hire a v
 
 ---
 
-## 10. Booking Management — Staff Workflow
+## 11. Cancellation Policy & Refunds
+
+The cancellation policy is configurable from Admin → **Promo Codes & Rates** (Cancellation Policy section). Three tiers apply:
+
+| Tier | Condition | Refund |
+|---|---|---|
+| Full refund | Cancelled more than X hours before pickup (default: 48h) | 100% |
+| Partial refund | Cancelled between Y and X hours before pickup (default: 24–48h) | Configurable % (default: 50%) |
+| No refund | Cancelled less than Y hours before pickup (default: <24h) | 0% |
+
+**Customer-initiated cancellation:** A refund request is created in the pending queue. Admin reviews it at `/admin/refund-requests` and clicks **Approve** — Stripe processes the refund and the customer receives an email within 7–10 business days.
+
+**Admin-initiated cancellation:** When staff cancel a booking from the reservation detail page, the full amount is refunded to Stripe immediately (no review step) and the customer is notified by email. This satisfies T&C §2.5(f).
+
+---
+
+## 12. Booking Management — Staff Workflow
 
 ### When a Customer Books
 1. Customer receives automatic email confirmation
@@ -229,40 +282,41 @@ Staff members can be issued a one-time booking code that allows them to hire a v
 2. Update reservation status to **Completed** in the admin dashboard
 
 ### Cancellations
-- Customers can self-cancel via the link in their confirmation email
-- Staff can cancel from the admin dashboard
-- Refunds are currently processed manually via the Stripe Dashboard
+- Customers can self-cancel via the link in their confirmation email or from My Bookings
+- Staff can cancel any booking from the admin reservation detail page
+- **Customer cancel:** creates a refund request in the admin queue; admin approves to trigger Stripe refund
+- **Admin cancel:** Stripe refund fires immediately (full amount); customer is emailed automatically
 
 ---
 
-## 11. What Comes Next
+## 13. What Comes Next
 
 ### Immediate (before public launch)
 - [ ] **Legal review** — Privacy Policy and Terms & Conditions reviewed by a NSW solicitor
 - [ ] **Stripe live keys** — Switch from test mode to live; complete a $1 test transaction
-- [ ] **Stripe webhook** — Register `https://swiftriderentals.com.au/api/v1/payments/webhook` in Stripe Dashboard
-- [ ] **Email setup** — Configure Mailgun SMTP so confirmation emails and booking codes are sent automatically
+- [ ] **Stripe webhook** — Register `https://swiftriderentals.com.au/api/v1/payments/webhook` in Stripe Dashboard (events: `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refund.updated`)
+- [ ] **Email setup** — Configure Mailgun SMTP so confirmation, cancellation, and refund emails are sent
 - [ ] **Admin password** — Change temporary password to a permanent one
 - [ ] **Vehicle photos** — Add real photos for each vehicle in the admin dashboard
-- [ ] **Add employees** — Register all staff in Admin → Employees before generating any codes
+- [ ] **Add employees** — Register all staff in Admin → Employees before generating any booking codes
 
 ### Short Term
 - [ ] **Uptime monitoring** — Set up UptimeRobot to alert staff if the site goes down
 - [ ] **Automated backups** — Configure daily database backup script on the server
 - [ ] **Insurance confirmation** — Confirm with insurer in writing that third-party hire is covered
 - [ ] **NSW licensing** — Confirm motor vehicle hire licensing requirements with NSW Fair Trading
+- [ ] **Promo code distribution** — Generate first batch of promo codes and decide distribution process
 
 ### Future Enhancements
-- **Automatic refunds** — Stripe refund API triggered automatically based on cancellation policy
-- **Staff notifications via SMS** — Twilio integration for booking alerts
+- **SMS notifications** — Twilio integration for booking alerts to staff
 - **Calendar view** — Visual calendar showing all bookings across the fleet
 - **Reporting dashboard** — Revenue charts, fleet utilisation, booking trends
-- **Customer accounts** — Returning customers save their details for faster booking
 - **Maintenance scheduling** — Integration with a vehicle maintenance calendar
+- **Multi-admin users** — Individual logins per staff member instead of a single shared admin
 
 ---
 
-## 12. Source Code & Documentation
+## 14. Source Code & Documentation
 
 | Document | Purpose |
 |---|---|
@@ -277,7 +331,7 @@ All source code, configuration, and documentation is version-controlled. Secrets
 
 ---
 
-## 13. Key Contacts & Access
+## 15. Key Contacts & Access
 
 | Role | Detail |
 |---|---|
@@ -292,4 +346,4 @@ All source code, configuration, and documentation is version-controlled. Secrets
 
 *This document provides a management-level overview of the SwiftRide Rentals platform as of June 2026.
 For technical implementation details, refer to `COMPLETE_DEVELOPER_GUIDE.md`.
-For operational procedures, refer to `PRODUCTION.md`.*
+For operational procedures (server access, deploy steps, Stripe configuration), refer to `PRODUCTION.md`.*

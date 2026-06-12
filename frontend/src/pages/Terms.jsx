@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { useSiteConfig } from '../hooks/useSiteConfig.jsx';
 
 const SECTIONS = [
   {
@@ -78,6 +79,36 @@ const SECTIONS = [
 ];
 
 export default function Terms() {
+  const { legal_terms_filename, business_name } = useSiteConfig();
+
+  if (legal_terms_filename) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Terms &amp; Conditions of Rental</h1>
+        <p className="text-sm text-gray-500 mb-1">{business_name} · NSW, Australia</p>
+        <p className="text-xs text-gray-400 mb-6">Document: {legal_terms_filename}</p>
+        <div className="flex gap-3 mb-6">
+          <a href="/uploads/legal/terms.pdf" target="_blank" rel="noopener noreferrer" className="btn-primary">
+            Open PDF ↗
+          </a>
+          <a href="/uploads/legal/terms.pdf" download={legal_terms_filename} className="btn-secondary">
+            Download
+          </a>
+        </div>
+        <iframe
+          src="/uploads/legal/terms.pdf"
+          className="w-full border border-gray-200 rounded-lg"
+          style={{ height: '72vh' }}
+          title="Terms and Conditions"
+        />
+        <div className="mt-6 flex gap-4">
+          <Link to="/" className="btn-secondary">← Home</Link>
+          <Link to="/privacy" className="btn-secondary">Privacy Policy</Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
       <h1 className="text-3xl font-bold text-gray-900 mb-2">Terms &amp; Conditions of Rental</h1>
@@ -109,3 +140,4 @@ export default function Terms() {
     </div>
   );
 }
+

@@ -1,7 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { useSiteConfig } from '../hooks/useSiteConfig.jsx';
 
 export default function Footer() {
+  const { business_name, business_abn, business_phone, business_address, business_email, business_hours } = useSiteConfig();
   return (
     <footer className="bg-gradient-header mt-auto" role="contentinfo">
       {/* Top accent line */}
@@ -18,12 +20,20 @@ export default function Footer() {
                     d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                 </svg>
               </div>
-              <span className="text-white font-bold text-sm">Special Need Vehicle Rental</span>
+              <span className="text-white font-bold text-sm">{business_name}</span>
             </div>
-            <p className="text-brand-300 text-xs leading-relaxed">
-              Trusted, accessible vehicle hire for the community.<br />
-              NSW, Australia · ABN: XX XXX XXX XXX
-            </p>
+            <div className="space-y-0.5 text-brand-300 text-xs leading-relaxed">
+              <p>Trusted, accessible vehicle hire for the community.</p>
+              <p>NSW, Australia{business_abn ? ` · ABN: ${business_abn}` : ''}</p>
+              {business_address && <p>{business_address}</p>}
+              {business_phone && (
+                <p><a href={`tel:${business_phone.replace(/\s/g,'')}`} className="hover:text-brand-100 transition-colors">{business_phone}</a></p>
+              )}
+              {business_email && (
+                <p><a href={`mailto:${business_email}`} className="hover:text-brand-100 transition-colors">{business_email}</a></p>
+              )}
+              {business_hours && <p className="pt-0.5 text-brand-400">{business_hours}</p>}
+            </div>
           </div>
 
           {/* Legal */}
@@ -49,8 +59,8 @@ export default function Footer() {
         </div>
 
         <div className="border-t border-white/10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <p className="text-brand-400 text-xs">© {new Date().getFullYear()} Special Need Vehicle Rental. All rights reserved.</p>
-          <p className="text-brand-500 text-xs">Mon – Sat · 8:00 AM – 6:00 PM AEST</p>
+          <p className="text-brand-400 text-xs">© {new Date().getFullYear()} {business_name}. All rights reserved.</p>
+          {business_hours && <p className="text-brand-500 text-xs">{business_hours}</p>}
         </div>
       </div>
     </footer>

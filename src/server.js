@@ -79,19 +79,57 @@ const promoRouter       = require('./routes/promo');
 const publicRouter      = require('./routes/public');
 const authRouter        = require('./routes/auth');
 const myBookingsRouter  = require('./routes/myBookings');
+const siteContentRouter = require('./routes/siteContent');
+const db                = require('./db');
 
-app.use('/api/v1/health',              healthRouter);
-app.use('/api/v1/vehicles',            vehiclesRouter);
-app.use('/api/v1/availability',        availabilityRouter);
-app.use('/api/v1/reservations',        bookingLimiter, reservationsRouter);
-app.use('/api/v1/payments',            paymentLimiter, paymentsRouter);
-app.use('/api/v1/admin',               adminRouter);
-app.use('/api/v1/admin/employees',     employeesRouter);
-app.use('/api/v1/codes',               codesRouter);
-app.use('/api/v1/promo',               bookingLimiter, promoRouter);
-app.use('/api/v1/public',              publicRouter);
-app.use('/api/v1/auth',               authRouter);
-app.use('/api/v1/my-bookings',        myBookingsRouter);
+// ---------- Maintenance middleware (runs before all public API routes) ----------
+app.use('/api/v1', (req, res, next) => {
+  // Never block: admin routes, health, site-config (frontend needs it to detect maintenance)
+  const p = req.path;
+  if (p.startsWith('/admin') || p === '/health' || p === '/public/site-config' || p.startsWith('/auth')) {
+    return next();
+  }
+  try {
+    const row = db.prepare("SELECT value FROM site_content WHERE key='maintenance_enabled'").get();
+    if (!row || row.value !== '1') return next();
+
+    const startRow = db.prepare("SELECT value FROM site_content WHERE key='maintenance_start'").get();
+    const endRow   = db.prepare("SELECT value FROM site_content WHERE key='maintenance_end'").get();
+    const msgRow   = db.prepare("SELECT value FROM site_content WHERE key='maintenance_message'").get();
+
+    const hasSchedule = startRow?.value && endRow?.value;
+    if (hasSchedule) {
+      const now = Date.now();
+      const start = new Date(startRow.value).getTime();
+      const end   = new Date(endRow.value).getTime();
+      if (isNaN(start) || isNaN(end) || now < start || now > end) return next();
+    }
+
+    return res.status(503).json({
+      error: 'maintenance',
+      message: msgRow?.value || 'The site is currently undergoing scheduled maintenance. We will be back shortly.',
+    });
+  } catch {
+    return next(); // site_content table not yet migrated — skip silently
+  }
+});
+
+app.use('/api/v1/health',                   healthRouter);
+app.use('/api/v1/vehicles',                 vehiclesRouter);
+app.use('/api/v1/availability',             availabilityRouter);
+app.use('/api/v1/reservations',             bookingLimiter, reservationsRouter);
+app.use('/api/v1/payments',                 paymentLimiter, paymentsRouter);
+app.use('/api/v1/admin/site-content',       siteContentRouter);
+app.use('/api/v1/admin',                    adminRouter);
+app.use('/api/v1/admin/employees',          employeesRouter);
+app.use('/api/v1/codes',                    codesRouter);
+app.use('/api/v1/promo',                    bookingLimiter, promoRouter);
+app.use('/api/v1/public',                   publicRouter);
+app.use('/api/v1/auth',                     authRouter);
+app.use('/api/v1/my-bookings',              myBookingsRouter);
+
+// ---------- Serve uploaded legal documents ----------
+app.use('/uploads', require('express').static(path.join(__dirname, '../uploads')));
 
 // ---------- Serve React build in production ----------
 const distPath = path.join(__dirname, '../frontend/dist');

@@ -25,13 +25,37 @@ import AdminEmployees from './pages/admin/Employees.jsx';
 import AdminBookingCodes from './pages/admin/BookingCodes.jsx';
 import AdminPromoCodes from './pages/admin/PromoCodes.jsx';
 import AdminRefundRequests from './pages/admin/RefundRequests.jsx';
+import AdminSiteSettings from './pages/admin/SiteSettings.jsx';
 import { useAdminAuth } from './hooks/useAdminAuth.js';
 import { UserAuthProvider } from './hooks/useUserAuth.jsx';
+import { SiteConfigProvider, useSiteConfig, isMaintenanceActive } from './hooks/useSiteConfig.jsx';
+import Maintenance from './pages/Maintenance.jsx';
 import AdminNav from './components/AdminNav.jsx';
+
+function AnnouncementBanner() {
+  const { banner_enabled, banner_message } = useSiteConfig();
+  const [dismissed, setDismissed] = React.useState(false);
+  if (banner_enabled !== '1' || !banner_message || dismissed) return null;
+  return (
+    <div role="alert" className="bg-brand-600 text-white text-sm font-medium px-4 py-2.5 flex items-center justify-between gap-4">
+      <p className="flex-1 text-center">{banner_message}</p>
+      <button
+        onClick={() => setDismissed(true)}
+        aria-label="Dismiss announcement"
+        className="flex-shrink-0 text-white/70 hover:text-white transition-colors"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  );
+}
 
 function PublicLayout({ children }) {
   return (
     <div className="min-h-screen flex flex-col">
+      <AnnouncementBanner />
       <Header />
       <main id="main-content" className="flex-1">
         {children}
@@ -39,6 +63,13 @@ function PublicLayout({ children }) {
       <Footer />
     </div>
   );
+}
+
+function MaintenanceGate({ children }) {
+  const config = useSiteConfig();
+  const isAdmin = window.location.pathname.startsWith('/admin');
+  if (!isAdmin && isMaintenanceActive(config)) return <Maintenance />;
+  return children;
 }
 
 function AdminLayout({ children }) {
@@ -67,7 +98,9 @@ function ProtectedAdmin({ children }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <UserAuthProvider>
+      <SiteConfigProvider>
+        <UserAuthProvider>
+          <MaintenanceGate>
         <Routes>
           {/* Public */}
           <Route path="/" element={<PublicLayout><Landing /></PublicLayout>} />
@@ -93,6 +126,7 @@ export default function App() {
           <Route path="/admin/codes" element={<ProtectedAdmin><AdminLayout><AdminBookingCodes /></AdminLayout></ProtectedAdmin>} />
           <Route path="/admin/promo-codes" element={<ProtectedAdmin><AdminLayout><AdminPromoCodes /></AdminLayout></ProtectedAdmin>} />
           <Route path="/admin/refund-requests" element={<ProtectedAdmin><AdminLayout><AdminRefundRequests /></AdminLayout></ProtectedAdmin>} />
+          <Route path="/admin/site-settings" element={<ProtectedAdmin><AdminLayout><AdminSiteSettings /></AdminLayout></ProtectedAdmin>} />
 
           {/* Fallback */}
           <Route path="*" element={
@@ -105,7 +139,9 @@ export default function App() {
             </PublicLayout>
           } />
         </Routes>
-      </UserAuthProvider>
+          </MaintenanceGate>
+        </UserAuthProvider>
+      </SiteConfigProvider>
     </BrowserRouter>
   );
 }

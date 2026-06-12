@@ -100,3 +100,19 @@ export async function userPatchProfile(body)     { return api.patch('/auth/profi
 // My Bookings
 export async function getMyBookings()            { return api.get('/my-bookings'); }
 export async function submitFeedback(id, body)   { return api.post(`/my-bookings/${id}/feedback`, body); }
+
+// Site content (admin)
+export async function adminGetSiteContent()      { return api.get('/admin/site-content'); }
+export async function adminSaveSiteContent(body) { return api.post('/admin/site-content', body); }
+export async function adminUploadLegalDoc(type, file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`/api/v1/admin/site-content/upload/${type}`, {
+    method: 'POST',
+    credentials: 'include',
+    body: formData,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.error || 'Upload failed'), { status: res.status });
+  return json;
+}

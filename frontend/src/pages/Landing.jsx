@@ -1,7 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-
-const PHONE = import.meta.env.VITE_FACILITY_PHONE || '(02) XXXX XXXX';
+import { useSiteConfig } from '../hooks/useSiteConfig.jsx';
 
 const VEHICLE_TYPES = [
   {
@@ -121,6 +120,7 @@ const STEPS = [
 
 export default function Landing() {
   const navigate = useNavigate();
+  const { business_phone, business_hours, hero_headline, hero_subheadline, hero_tagline, hero_cta_text } = useSiteConfig();
 
   return (
     <>
@@ -139,18 +139,16 @@ export default function Landing() {
           </div>
 
           <h1 id="hero-heading" className="text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-tight mb-5 tracking-tight">
-            Special Need<br />
             <span className="text-transparent bg-clip-text" style={{backgroundImage:'linear-gradient(135deg,#a5b4fc,#e879f9,#67e8f9)'}}>
-              Vehicle Rental
+              {hero_headline}
             </span>
           </h1>
 
           <p className="text-lg sm:text-xl text-brand-200 mb-3 max-w-2xl mx-auto leading-relaxed">
-            Our vehicles, available to you — safe, accessible hire for our community.
+            {hero_subheadline}
           </p>
           <p className="text-brand-300 text-base mb-10 max-w-xl mx-auto">
-            The same fleet our elderly care residents rely on, available to hire when not in use.
-            Trusted, insured, and ready.
+            {hero_tagline}
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -158,20 +156,22 @@ export default function Landing() {
               onClick={() => navigate('/availability')}
               className="btn-primary text-base px-8 py-3.5 shadow-glow"
             >
-              Check Availability
+              {hero_cta_text}
             </button>
-            <a
-              href={`tel:${PHONE.replace(/[\s()]/g, '')}`}
-              className="inline-flex items-center justify-center gap-2 border-2 border-white/30 text-white font-semibold py-3.5 px-8 rounded-lg text-base hover:bg-white/10 hover:border-white/60 focus-visible:ring-2 focus-visible:ring-white transition-all duration-200 text-center min-h-[44px]"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-              </svg>
-              Call {PHONE}
-            </a>
+            {business_phone && (
+              <a
+                href={`tel:${business_phone.replace(/[\s()]/g, '')}`}
+                className="inline-flex items-center justify-center gap-2 border-2 border-white/30 text-white font-semibold py-3.5 px-8 rounded-lg text-base hover:bg-white/10 hover:border-white/60 focus-visible:ring-2 focus-visible:ring-white transition-all duration-200 text-center min-h-[44px]"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                </svg>
+                Call {business_phone}
+              </a>
+            )}
           </div>
-          <p className="mt-5 text-brand-400 text-sm">Mon – Sat · 8:00 AM – 6:00 PM AEST</p>
+          {business_hours && <p className="mt-5 text-brand-400 text-sm">{business_hours}</p>}
         </div>
 
         {/* Bottom wave */}

@@ -34,6 +34,9 @@ stripe keys.txt
 *secret*.txt
 *password*.txt
 
+# Uploaded legal documents — keep directory structure, not the files
+uploads/legal/*.pdf
+
 # OS files
 .DS_Store
 Thumbs.db

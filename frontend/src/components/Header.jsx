@@ -1,14 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useUserAuth } from '../hooks/useUserAuth.jsx';
-
-const PHONE = import.meta.env.VITE_FACILITY_PHONE || '(02) XXXX XXXX';
+import { useSiteConfig } from '../hooks/useSiteConfig.jsx';
 
 export default function Header() {
   const location  = useLocation();
   const navigate  = useNavigate();
   const isAdmin   = location.pathname.startsWith('/admin');
   const { user, logout } = useUserAuth();
+  const { business_name, business_phone } = useSiteConfig();
+  const phone = business_phone || import.meta.env.VITE_FACILITY_PHONE || '';
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -48,9 +49,11 @@ export default function Header() {
             </div>
             <div className="leading-tight">
               <span className="hidden sm:block text-white font-bold text-base tracking-tight">
-                Special Need Vehicle Rental
+                {business_name}
               </span>
-              <span className="sm:hidden text-white font-bold text-base">SNVR</span>
+              <span className="sm:hidden text-white font-bold text-base">
+                {business_name.split(' ').map(w => w[0]).join('').slice(0, 4)}
+              </span>
               <span className="hidden sm:block text-brand-300 text-xs font-medium tracking-wide">NSW, Australia</span>
             </div>
           </Link>
@@ -59,17 +62,19 @@ export default function Header() {
           <nav aria-label="Primary navigation" className="flex items-center gap-2">
             {!isAdmin && (
               <>
-                <a
-                  href={`tel:${PHONE.replace(/\s/g, '')}`}
-                  className="hidden sm:flex items-center gap-1.5 text-sm font-medium text-brand-200 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/10"
-                  aria-label={`Call us: ${PHONE}`}
-                >
-                  <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                  {PHONE}
-                </a>
+                {phone && (
+                  <a
+                    href={`tel:${phone.replace(/\s/g, '')}`}
+                    className="hidden sm:flex items-center gap-1.5 text-sm font-medium text-brand-200 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/10"
+                    aria-label={`Call us: ${phone}`}
+                  >
+                    <svg aria-hidden="true" className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                    </svg>
+                    {phone}
+                  </a>
+                )}
 
                 {user ? (
                   <div className="relative" ref={menuRef}>
