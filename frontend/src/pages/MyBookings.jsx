@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useUserAuth } from '../hooks/useUserAuth.js';
+import { useUserAuth } from '../hooks/useUserAuth.jsx';
 import { getMyBookings, submitFeedback } from '../utils/api.js';
 import { formatAUDFromString, formatSydney } from '../utils/formatters.js';
 import { AlertError } from '../components/Alert.jsx';

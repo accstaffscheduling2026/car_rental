@@ -26,7 +26,7 @@ import AdminBookingCodes from './pages/admin/BookingCodes.jsx';
 import AdminPromoCodes from './pages/admin/PromoCodes.jsx';
 import AdminRefundRequests from './pages/admin/RefundRequests.jsx';
 import { useAdminAuth } from './hooks/useAdminAuth.js';
-import { UserAuthProvider } from './hooks/useUserAuth.js';
+import { UserAuthProvider } from './hooks/useUserAuth.jsx';
 import AdminNav from './components/AdminNav.jsx';
 
 function PublicLayout({ children }) {

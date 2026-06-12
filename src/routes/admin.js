@@ -316,6 +316,9 @@ router.get('/promo-codes', requireAdmin, (req, res) => {
 router.post('/promo-codes', requireAdmin, (req, res) => {
   const count = Math.min(Math.max(parseInt(req.body.count || 1, 10), 1), 50);
   const expiresAt = req.body.expires_at || null;
+  const discountPercent = Math.min(Math.max(parseInt(req.body.discount_percent || 0, 10), 0), 100);
+
+  if (discountPercent <= 0) return res.status(422).json({ error: 'Discount must be between 1 and 100' });
 
   const generated = [];
   for (let i = 0; i < count; i++) {
@@ -327,8 +330,8 @@ router.post('/promo-codes', requireAdmin, (req, res) => {
     } while (db.prepare(`SELECT id FROM promo_codes WHERE code = ?`).get(code) && attempts < 10);
 
     db.prepare(
-      `INSERT INTO promo_codes (code, generated_by, expires_at) VALUES (?, ?, ?)`
-    ).run(code, req.session.adminId, expiresAt);
+      `INSERT INTO promo_codes (code, generated_by, expires_at, discount_percent) VALUES (?, ?, ?, ?)`
+    ).run(code, req.session.adminId, expiresAt, discountPercent);
     generated.push(code);
   }
   res.status(201).json({ data: generated });

@@ -22,10 +22,7 @@ router.post('/validate', (req, res) => {
     return res.status(422).json({ error: msg });
   }
 
-  const setting = db.prepare(`SELECT value FROM settings WHERE key = 'special_rate_discount_percent'`).get();
-  const discountPercent = setting ? parseInt(setting.value, 10) : 0;
-
-  res.json({ valid: true, discount_percent: discountPercent, code: row.code });
+  res.json({ valid: true, discount_percent: row.discount_percent || 0, code: row.code });
 });
 
 module.exports = router;

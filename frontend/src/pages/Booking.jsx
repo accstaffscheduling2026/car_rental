@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { stripePromise } from '../utils/stripe.js';
 import { getVehicle, createReservation, createPaymentIntent, cancelReservation, validateBookingCode, validatePromoCode } from '../utils/api.js';
-import { useUserAuth } from '../hooks/useUserAuth.js';
+import { useUserAuth } from '../hooks/useUserAuth.jsx';
 import BookingProgress from '../components/BookingProgress.jsx';
 import { AlertError, AlertInfo } from '../components/Alert.jsx';
 import { formatAUDFromString, formatSydney } from '../utils/formatters.js';

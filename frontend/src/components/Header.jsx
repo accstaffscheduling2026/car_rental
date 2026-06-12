@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useUserAuth } from '../hooks/useUserAuth.js';
+import { useUserAuth } from '../hooks/useUserAuth.jsx';
 
 const PHONE = import.meta.env.VITE_FACILITY_PHONE || '(02) XXXX XXXX';
 

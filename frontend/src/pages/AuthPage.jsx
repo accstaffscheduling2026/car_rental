@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { useUserAuth } from '../hooks/useUserAuth.js';
+import { useUserAuth } from '../hooks/useUserAuth.jsx';
 import { AlertError } from '../components/Alert.jsx';
 
 export default function AuthPage() {

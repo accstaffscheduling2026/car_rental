@@ -15,26 +15,26 @@ const STATUS_BADGE = {
 };
 
 export default function PromoCodes() {
-  const [settings, setSettings]         = useState({ special_rate_discount_percent: '0' });
-  const [discountInput, setDiscountInput] = useState('');
-  const [savingDiscount, setSavingDiscount] = useState(false);
-
-  // Cancellation policy inputs
-  const [fullHoursInput,   setFullHoursInput]   = useState('48');
+  // Cancellation policy
+  const [settings,          setSettings]          = useState({});
+  const [fullHoursInput,    setFullHoursInput]    = useState('48');
   const [partialHoursInput, setPartialHoursInput] = useState('24');
-  const [partialPctInput,  setPartialPctInput]  = useState('50');
-  const [savingPolicy, setSavingPolicy]         = useState(false);
+  const [partialPctInput,   setPartialPctInput]   = useState('50');
+  const [savingPolicy,      setSavingPolicy]      = useState(false);
 
-  const [codes, setCodes]       = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState('');
-  const [success, setSuccess]   = useState('');
-  const [filter, setFilter]     = useState('all');
-
-  const [genCount, setGenCount]       = useState(1);
-  const [genExpiry, setGenExpiry]     = useState('');
-  const [generating, setGenerating]   = useState(false);
+  // Promo codes
+  const [codes,      setCodes]      = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState('');
+  const [success,    setSuccess]    = useState('');
+  const [filter,     setFilter]     = useState('all');
   const [showGenForm, setShowGenForm] = useState(false);
+
+  // Generate form — discount % is part of this form now
+  const [genCount,    setGenCount]    = useState(1);
+  const [genDiscount, setGenDiscount] = useState('');
+  const [genExpiry,   setGenExpiry]   = useState('');
+  const [generating,  setGenerating]  = useState(false);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -43,7 +43,6 @@ export default function PromoCodes() {
     try {
       const [sRes, cRes] = await Promise.all([adminGetSettings(), adminGetPromoCodes()]);
       setSettings(sRes.data);
-      setDiscountInput(sRes.data.special_rate_discount_percent ?? '0');
       setFullHoursInput(sRes.data.cancel_full_refund_hours ?? '48');
       setPartialHoursInput(sRes.data.cancel_partial_hours ?? '24');
       setPartialPctInput(sRes.data.cancel_partial_pct ?? '50');
@@ -60,10 +59,10 @@ export default function PromoCodes() {
     const full    = parseInt(fullHoursInput, 10);
     const partial = parseInt(partialHoursInput, 10);
     const pct     = parseInt(partialPctInput, 10);
-    if (isNaN(full) || full < 0)   { setError('Full-refund hours must be 0 or more'); return; }
-    if (isNaN(partial) || partial < 0) { setError('Partial-refund hours must be 0 or more'); return; }
-    if (partial >= full)           { setError('Partial-refund threshold must be less than full-refund threshold'); return; }
-    if (isNaN(pct) || pct < 0 || pct > 100) { setError('Partial refund % must be between 0 and 100'); return; }
+    if (isNaN(full)    || full < 0)              { setError('Full-refund hours must be 0 or more'); return; }
+    if (isNaN(partial) || partial < 0)           { setError('Partial-refund hours must be 0 or more'); return; }
+    if (partial >= full)                         { setError('Partial-refund threshold must be less than full-refund threshold'); return; }
+    if (isNaN(pct) || pct < 0 || pct > 100)     { setError('Partial refund % must be between 0 and 100'); return; }
     setSavingPolicy(true);
     setError('');
     try {
@@ -81,37 +80,26 @@ export default function PromoCodes() {
     }
   }
 
-  async function handleSaveDiscount(e) {
-    e.preventDefault();
-    const val = parseInt(discountInput, 10);
-    if (isNaN(val) || val < 0 || val > 100) {
-      setError('Discount must be a number between 0 and 100');
-      return;
-    }
-    setSavingDiscount(true);
-    setError('');
-    try {
-      const res = await adminPatchSettings({ special_rate_discount_percent: val });
-      setSettings(res.data);
-      setSuccess('Special rate discount updated.');
-    } catch (e) {
-      setError(e.message || 'Failed to save setting');
-    } finally {
-      setSavingDiscount(false);
-    }
-  }
-
   async function handleGenerate(e) {
     e.preventDefault();
+    const discount = parseInt(genDiscount, 10);
+    if (isNaN(discount) || discount < 1 || discount > 100) {
+      setError('Discount must be between 1 and 100');
+      return;
+    }
     setGenerating(true);
     setError('');
     try {
-      const body = { count: parseInt(genCount, 10) };
+      const body = {
+        count:            parseInt(genCount, 10),
+        discount_percent: discount,
+      };
       if (genExpiry) body.expires_at = new Date(genExpiry).toISOString();
       await adminGeneratePromoCodes(body);
-      setSuccess(`${genCount} promo code${genCount > 1 ? 's' : ''} generated.`);
+      setSuccess(`${genCount} promo code${genCount > 1 ? 's' : ''} generated at ${discount}% off.`);
       setShowGenForm(false);
       setGenCount(1);
+      setGenDiscount('');
       setGenExpiry('');
       loadAll();
     } catch (e) {
@@ -135,66 +123,20 @@ export default function PromoCodes() {
 
   const filtered = filter === 'all' ? codes : codes.filter(c => c.status === filter);
   const counts   = codes.reduce((acc, c) => { acc[c.status] = (acc[c.status] || 0) + 1; return acc; }, {});
-  const discount = parseInt(settings.special_rate_discount_percent ?? '0', 10);
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Promo Codes &amp; Rates</h1>
-          <p className="text-sm text-gray-500 mt-1">Configure the special rate discount and manage one-time promo codes for customers</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Each batch of codes carries its own discount — generate different rates for different customer types.
+          </p>
         </div>
       </div>
 
       {error   && <div className="mb-4"><AlertError>{error}</AlertError></div>}
       {success && <div className="mb-4 cursor-pointer" onClick={() => setSuccess('')}><AlertSuccess>{success}</AlertSuccess></div>}
-
-      {/* ── Rate Configuration ── */}
-      <div className="card p-6 mb-8">
-        <h2 className="text-lg font-semibold text-gray-900 mb-1">Daily Rate Configuration</h2>
-        <p className="text-sm text-gray-500 mb-5">
-          Two rate tiers apply to external customers. The <strong>General Rate</strong> is each vehicle's standard daily rate set in the Vehicles section.
-          The <strong>Special Rate</strong> is a percentage discount off the general rate, unlocked by a one-time promo code.
-        </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-          <div className="rounded-lg border border-gray-200 p-4 bg-gray-50">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">General Rate</p>
-            <p className="text-base font-medium text-gray-900">Each vehicle's standard daily rate</p>
-            <p className="text-xs text-gray-400 mt-1">Set per vehicle in the Vehicles section</p>
-          </div>
-          <div className="rounded-lg border border-brand-200 p-4 bg-brand-50">
-            <p className="text-xs font-semibold text-brand-600 uppercase tracking-wide mb-1">Special Rate</p>
-            <p className="text-2xl font-bold text-brand-700">
-              {discount > 0 ? `${discount}% off` : 'No discount set'}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">Applied to daily rate when customer uses a promo code</p>
-          </div>
-        </div>
-
-        <form onSubmit={handleSaveDiscount} className="flex items-end gap-3 max-w-sm">
-          <div className="flex-1">
-            <label htmlFor="discount-pct" className="label">Special rate discount (%)</label>
-            <div className="relative">
-              <input
-                id="discount-pct"
-                type="number"
-                min="0"
-                max="100"
-                value={discountInput}
-                onChange={e => setDiscountInput(e.target.value)}
-                className="input pr-8"
-                placeholder="0"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
-            </div>
-          </div>
-          <button type="submit" disabled={savingDiscount} className="btn-primary whitespace-nowrap">
-            {savingDiscount ? 'Saving…' : 'Save Rate'}
-          </button>
-        </form>
-        <p className="text-xs text-gray-400 mt-2">Set to 0 to disable the special rate entirely.</p>
-      </div>
 
       {/* ── Cancellation Policy ── */}
       <div className="card p-6 mb-8">
@@ -204,7 +146,6 @@ export default function PromoCodes() {
           Refunds are always subject to admin review before being processed.
         </p>
 
-        {/* Visual summary */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6 text-sm">
           <div className="rounded-lg border border-green-200 bg-green-50 p-3">
             <p className="font-semibold text-green-800">Tier 1 — Full refund</p>
@@ -233,33 +174,22 @@ export default function PromoCodes() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
             <div>
               <label htmlFor="full-hours" className="label">Full-refund threshold (hours)</label>
-              <input
-                id="full-hours" type="number" min="1" max="8760"
-                value={fullHoursInput}
-                onChange={e => setFullHoursInput(e.target.value)}
-                className="input"
-              />
+              <input id="full-hours" type="number" min="1" max="8760"
+                value={fullHoursInput} onChange={e => setFullHoursInput(e.target.value)} className="input" />
               <p className="text-xs text-gray-400 mt-1">Cancel before this → 100% refund</p>
             </div>
             <div>
               <label htmlFor="partial-hours" className="label">Partial-refund threshold (hours)</label>
-              <input
-                id="partial-hours" type="number" min="0" max="8760"
-                value={partialHoursInput}
-                onChange={e => setPartialHoursInput(e.target.value)}
-                className="input"
-              />
+              <input id="partial-hours" type="number" min="0" max="8760"
+                value={partialHoursInput} onChange={e => setPartialHoursInput(e.target.value)} className="input" />
               <p className="text-xs text-gray-400 mt-1">Cancel between here and above → partial</p>
             </div>
             <div>
               <label htmlFor="partial-pct" className="label">Partial refund (%)</label>
               <div className="relative">
-                <input
-                  id="partial-pct" type="number" min="0" max="100"
-                  value={partialPctInput}
-                  onChange={e => setPartialPctInput(e.target.value)}
-                  className="input pr-8"
-                />
+                <input id="partial-pct" type="number" min="0" max="100"
+                  value={partialPctInput} onChange={e => setPartialPctInput(e.target.value)}
+                  className="input pr-8" />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
               </div>
               <p className="text-xs text-gray-400 mt-1">% of total hire cost refunded</p>
@@ -271,55 +201,65 @@ export default function PromoCodes() {
         </form>
       </div>
 
-      {/* ── Promo Codes ── */}
+      {/* ── Promo Codes header + generate toggle ── */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Promo Codes</h2>
-        <button
-          onClick={() => setShowGenForm(v => !v)}
-          className="btn-primary text-sm"
-        >
+        <button onClick={() => setShowGenForm(v => !v)} className="btn-primary text-sm">
           {showGenForm ? 'Cancel' : '+ Generate Codes'}
         </button>
       </div>
 
+      {/* ── Combined generate form ── */}
       {showGenForm && (
         <div className="card p-5 mb-6 border-brand-200 bg-brand-50">
-          <h3 className="font-semibold text-gray-900 mb-4">Generate New Promo Codes</h3>
+          <h3 className="font-semibold text-gray-900 mb-1">Generate New Promo Codes</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Set the discount for this batch — useful for different customer types (e.g. 15% for standard, 25% for VIP).
+            Each code is one-time use.
+          </p>
           <form onSubmit={handleGenerate} className="flex flex-wrap items-end gap-4">
+            <div>
+              <label htmlFor="gen-discount" className="label">
+                Discount off daily rate <span className="text-red-500">*</span>
+              </label>
+              <div className="relative w-28">
+                <input
+                  id="gen-discount" type="number" min="1" max="100"
+                  value={genDiscount} onChange={e => setGenDiscount(e.target.value)}
+                  className="input pr-8" placeholder="e.g. 20" required
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
+              </div>
+            </div>
             <div>
               <label htmlFor="gen-count" className="label">Number of codes</label>
               <input
-                id="gen-count"
-                type="number"
-                min="1"
-                max="50"
-                value={genCount}
-                onChange={e => setGenCount(e.target.value)}
-                className="input w-28"
+                id="gen-count" type="number" min="1" max="50"
+                value={genCount} onChange={e => setGenCount(e.target.value)}
+                className="input w-24"
               />
             </div>
             <div>
-              <label htmlFor="gen-expiry" className="label">Expiry date <span className="font-normal text-gray-400">(optional)</span></label>
+              <label htmlFor="gen-expiry" className="label">
+                Expiry date <span className="font-normal text-gray-400">(optional)</span>
+              </label>
               <input
-                id="gen-expiry"
-                type="datetime-local"
-                value={genExpiry}
-                onChange={e => setGenExpiry(e.target.value)}
+                id="gen-expiry" type="datetime-local"
+                value={genExpiry} onChange={e => setGenExpiry(e.target.value)}
                 className="input"
               />
             </div>
             <button type="submit" disabled={generating} className="btn-primary">
-              {generating ? 'Generating…' : `Generate ${genCount} Code${genCount > 1 ? 's' : ''}`}
+              {generating
+                ? 'Generating…'
+                : `Generate ${genCount} Code${genCount > 1 ? 's' : ''}${genDiscount ? ` at ${genDiscount}% off` : ''}`}
             </button>
           </form>
-          <p className="text-xs text-gray-500 mt-3">
-            Each code is one-time use. Generated codes grant the current special rate ({discount > 0 ? `${discount}% off` : 'no discount currently set'}).
-            Leave expiry blank for codes that never expire.
-          </p>
+          <p className="text-xs text-gray-400 mt-3">Leave expiry blank for codes that never expire.</p>
         </div>
       )}
 
-      {/* Summary counts */}
+      {/* ── Summary counts ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         {[
           { label: 'Active',   key: 'active',   colour: 'green' },
@@ -338,6 +278,7 @@ export default function PromoCodes() {
         ))}
       </div>
 
+      {/* ── Codes table ── */}
       {loading ? (
         <div className="text-center py-12 text-gray-400">Loading…</div>
       ) : filtered.length === 0 ? (
@@ -353,6 +294,7 @@ export default function PromoCodes() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-3 text-left font-medium text-gray-500">Code</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500">Discount</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-500">Generated</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-500">Expires</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-500">Status</th>
@@ -364,6 +306,12 @@ export default function PromoCodes() {
               {filtered.map(c => (
                 <tr key={c.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-mono font-bold text-gray-900 tracking-wider">{c.code}</td>
+                  <td className="px-4 py-3">
+                    {c.discount_percent > 0
+                      ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-brand-100 text-brand-700 text-xs font-semibold">{c.discount_percent}% off</span>
+                      : <span className="text-gray-400 text-xs">—</span>
+                    }
+                  </td>
                   <td className="px-4 py-3 text-xs text-gray-500">{formatSydney(c.created_at)}</td>
                   <td className="px-4 py-3 text-xs text-gray-500">{c.expires_at ? formatSydney(c.expires_at) : '—'}</td>
                   <td className="px-4 py-3">
