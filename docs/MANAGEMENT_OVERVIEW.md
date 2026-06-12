@@ -356,13 +356,15 @@ The Terms & Conditions and Privacy Policy pages can be replaced with uploaded PD
 
 ## 15. Source Code & Documentation
 
+All documents live in the `docs/` folder of the repository.
+
 | Document | Purpose |
 |---|---|
 | `PRODUCTION.md` | Server details, SSH access, deploy commands, next steps checklist |
 | `COMPLETE_DEVELOPER_GUIDE.md` | Full technical reference — architecture, API, database, environments |
 | `QUICKSTART.md` | Local development setup in 5 minutes |
 | `Special_Need_Vehicle_Rental_User_Flow_and_Hosting_Estimate.md` | User flows, screen layouts, testing guide with Stripe test cards |
-| `Special_Need_Vehicle_Rental_Architecture_and_Developer_Guide.md` | Original architecture specification |
+| `Special_Need_Vehicle_Rental_Business_Plan.md` | Business plan and financial projections |
 
 **GitHub repository:** https://github.com/accstaffscheduling2026/car_rental
 All source code, configuration, and documentation is version-controlled. Secrets (API keys, passwords) are never stored in the repository.
