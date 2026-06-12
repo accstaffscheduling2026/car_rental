@@ -1,9 +1,9 @@
 # Special Need Vehicle Rental
 ## Developer Environment Guide — Local, Test & Production
 
-**Version:** 1.0.0
+**Version:** 2.0.0
 **Date:** June 2026
-**Applies to:** Application version 1.0.0
+**Applies to:** Application version 2.0.0 (customer accounts, promo codes, refund workflow, enterprise redesign)
 **Jurisdiction:** New South Wales, Australia
 
 ---
@@ -195,17 +195,32 @@ This installs all Vite/React/Tailwind tooling into `frontend/node_modules/`. Fir
 
 **Create the database and run migrations:**
 
-```powershell
-npm run migrate
+```bash
+node -e "
+const fs = require('fs');
+const db = require('better-sqlite3')('./data/rental.sqlite');
+const files = fs.readdirSync('./migrations').filter(f => f.endsWith('.sql')).sort();
+for (const f of files) {
+  try { db.exec(fs.readFileSync('./migrations/' + f, 'utf8')); console.log('Applied:', f); }
+  catch(e) { console.log(e.message.includes('duplicate') || e.message.includes('already exists') ? 'Skip: ' + f : 'ERROR ' + f + ': ' + e.message); }
+}
+db.close();
+"
 ```
 
-This runs `scripts/migrate.js` which:
-1. Loads `.env` to get `DATABASE_PATH`
-2. Creates the `data/` directory if it doesn't exist
-3. Opens (or creates) `data/rental.sqlite`
-4. Executes `migrations/001_initial_schema.sql` — creates the `vehicles`, `reservations`, and `audit_log` tables plus indexes
+This applies all 6 migrations idempotently — already-applied files are silently skipped.
 
-Expected output: `Migration complete.`
+> **Note:** `npm run migrate` re-runs all SQL files and fails on existing databases. Always use the inline snippet above.
+
+Expected output (fresh database):
+```
+Applied: 001_initial.sql
+Applied: 002_booking_codes.sql
+Applied: 003_settings_and_promo_codes.sql
+Applied: 004_cancellation_policy_and_refunds.sql
+Applied: 005_user_accounts.sql
+Applied: 006_promo_code_discount.sql
+```
 
 **Seed 100 sample vehicles:**
 
@@ -284,9 +299,14 @@ Expected output:
 
 | URL | What you'll see |
 |---|---|
-| `http://localhost:5173` | Landing page of the booking site |
+| `http://localhost:5173` | Landing page (Aurora Indigo enterprise design) |
+| `http://localhost:5173/availability` | Availability search + vehicle results |
+| `http://localhost:5173/login` | Customer sign in / register (tabbed) |
+| `http://localhost:5173/my-bookings` | Customer bookings dashboard (redirects to /login if not signed in) |
 | `http://localhost:5173/admin/login` | Admin login page |
 | `http://localhost:5173/admin` | Admin dashboard (after login) |
+| `http://localhost:5173/admin/promo-codes` | Promo code generator + cancellation policy settings |
+| `http://localhost:5173/admin/refund-requests` | Pending refund approval queue |
 | `http://localhost:8080/api/v1/health` | API health check JSON response |
 | `http://localhost:8080/api/v1/vehicles` | Raw JSON list of all vehicles |
 
@@ -296,7 +316,23 @@ Expected output:
 
 ### 3.6 Working with the Local Database
 
-The SQLite database file lives at `./data/rental.sqlite`. This file is a single binary file — you can copy it, back it up, or delete it and re-run `npm run migrate && npm run seed` to start fresh.
+The SQLite database file lives at `./data/rental.sqlite`. This file is a single binary file — you can copy it, back it up, or delete it and re-run the migration snippet + seed to start fresh.
+
+After running all 6 migrations the database contains these 11 tables:
+
+| Table | Purpose |
+|---|---|
+| `vehicles` | Vehicle catalogue (100 seeded entries) |
+| `reservations` | All bookings — guest and account-based |
+| `audit_log` | Append-only action log |
+| `employees` | Staff added in Admin → Employees |
+| `booking_codes` | One-time employee free-hire codes |
+| `settings` | Cancellation policy thresholds (key/value) |
+| `promo_codes` | Customer discount codes with per-code `discount_percent` |
+| `refund_requests` | Pending customer-initiated refunds awaiting admin approval |
+| `users` | Optional customer accounts (bcrypt passwords) |
+| `booking_feedback` | Star ratings + comments on completed hires |
+| `sqlite_sequence` | SQLite auto-increment tracking (internal) |
 
 **To inspect the database manually:**
 
@@ -311,14 +347,17 @@ Useful SQLite commands inside the shell:
 SELECT id, name, type FROM vehicles LIMIT 5;
 SELECT COUNT(*) FROM vehicles;
 SELECT * FROM reservations ORDER BY created_at DESC LIMIT 5;
+SELECT * FROM users;
+SELECT * FROM promo_codes;
+SELECT * FROM refund_requests WHERE status = 'pending';
 .quit
 ```
 
-**To reset the database completely:**
+**To reset the database completely (development only):**
 
 ```powershell
 Remove-Item data\rental.sqlite
-npm run migrate
+node -e "const fs=require('fs'),db=require('better-sqlite3')('./data/rental.sqlite'),files=fs.readdirSync('./migrations').filter(f=>f.endsWith('.sql')).sort();for(const f of files){try{db.exec(fs.readFileSync('./migrations/'+f,'utf8'));console.log('Applied:',f);}catch(e){console.log('Skip:',f);}}db.close();"
 npm run seed
 ```
 
@@ -626,11 +665,22 @@ npm ci --omit=dev
 
 > `npm ci` (Clean Install) is preferred over `npm install` in CI/CD and production because it installs exact versions from `package-lock.json` rather than resolving `^` ranges. `--omit=dev` skips Jest and other dev tools.
 
-**Run database migration:**
+**Run database migrations (idempotent — safe on existing databases):**
 
 ```bash
-npm run migrate
+node -e "
+const fs = require('fs');
+const db = require('better-sqlite3')(process.env.DATABASE_PATH || './data/rental.sqlite');
+const files = fs.readdirSync('./migrations').filter(f => f.endsWith('.sql')).sort();
+for (const f of files) {
+  try { db.exec(fs.readFileSync('./migrations/' + f, 'utf8')); console.log('Applied:', f); }
+  catch(e) { console.log(e.message.includes('duplicate') || e.message.includes('already exists') ? 'Skip: ' + f : 'ERROR ' + f + ': ' + e.message); }
+}
+db.close();
+"
 ```
+
+> **Note:** `npm run migrate` re-runs all SQL files and fails on existing databases. Always use the inline snippet above.
 
 **Seed the fleet (first deploy only):**
 
@@ -777,8 +827,17 @@ npm ci --omit=dev
 # Rebuild frontend if any frontend files changed
 cd frontend && npm ci && npm run build && cd ..
 
-# Run migrations if schema changed (safe to re-run — uses CREATE TABLE IF NOT EXISTS)
-npm run migrate
+# Apply any new migrations (idempotent — skips already-applied files)
+node -e "
+const fs = require('fs');
+const db = require('better-sqlite3')(process.env.DATABASE_PATH || './data/rental.sqlite');
+const files = fs.readdirSync('./migrations').filter(f => f.endsWith('.sql')).sort();
+for (const f of files) {
+  try { db.exec(fs.readFileSync('./migrations/' + f, 'utf8')); console.log('Applied:', f); }
+  catch(e) { console.log(e.message.includes('duplicate') || e.message.includes('already exists') ? 'Skip: ' + f : 'ERROR ' + f + ': ' + e.message); }
+}
+db.close();
+"
 
 # Reload the application gracefully (zero downtime)
 pm2 reload rental-api

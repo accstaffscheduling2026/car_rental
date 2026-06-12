@@ -1,7 +1,7 @@
 # Special Need Vehicle Rental
 ## Complete Developer Guide
 
-**Version:** 1.2.0 (updated with employee booking codes feature)
+**Version:** 2.0.0 (updated with customer accounts, promo codes, refund workflow, enterprise redesign)
 **Last Updated:** June 2026
 **Business:** SwiftRide Rentals Pty Ltd — 483 Hume Highway, Yagoona NSW 2199
 **Jurisdiction:** New South Wales, Australia
@@ -229,14 +229,24 @@ employees ───────────────────────�
                                  ▼
                           booking_codes ──────────┐
                                                   │ M:1 (when used)
-vehicles ────────┐                                │
-                 │ 1:M                            │
-                 ▼                                ▼
-           reservations ◄──────────────────────────
+                   promo_codes ──────────┐        │
+                                         │ M:1    │
+vehicles ────────┐                       │        │
+                 │ 1:M                   │        │
+                 ▼                       ▼        ▼
+           reservations ◄─────────────────────────────
+                 │                       │
+                 │ 1:M                   │ 1:M
+                 ▼                       ▼
+         booking_feedback        refund_requests
                  │
-          (customer data embedded — no separate customers table)
+          (customer data embedded in reservations)
                  │
            audit_log ◄── append-only audit trail
+
+users ── optional account; matched to reservations by customer_email COLLATE NOCASE
+
+settings ── single-row key/value store (cancellation policy thresholds)
 ```
 
 ### 4.2 Full SQL Schema
@@ -354,6 +364,87 @@ CREATE TABLE IF NOT EXISTS booking_codes (
 CREATE INDEX IF NOT EXISTS idx_codes_code     ON booking_codes(code);
 CREATE INDEX IF NOT EXISTS idx_codes_employee ON booking_codes(employee_id);
 CREATE INDEX IF NOT EXISTS idx_codes_status   ON booking_codes(status);
+
+-- ============================================================
+-- migrations/003_settings_and_promo_codes.sql
+-- ============================================================
+
+-- Key/value settings store (single-row; keys enumerated below)
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Promo codes — public-facing discount codes distributed to customers
+CREATE TABLE IF NOT EXISTS promo_codes (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  code           TEXT    NOT NULL UNIQUE,          -- uppercase alphanumeric, 8–12 chars
+  generated_by   TEXT    NOT NULL DEFAULT 'admin',
+  status         TEXT    NOT NULL DEFAULT 'active', -- 'active' | 'used' | 'expired' | 'disabled'
+  expires_at     TEXT,                              -- ISO UTC; null = never expires
+  used_at        TEXT,
+  used_reservation_id INTEGER REFERENCES reservations(id),
+  created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_promo_code   ON promo_codes(code);
+CREATE INDEX IF NOT EXISTS idx_promo_status ON promo_codes(status);
+
+-- ============================================================
+-- migrations/004_cancellation_policy_and_refunds.sql
+-- ============================================================
+
+-- Adds cancellation policy columns to settings (populated with defaults on first use)
+
+-- Pending refund queue for customer-initiated cancellations
+CREATE TABLE IF NOT EXISTS refund_requests (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  reservation_id  INTEGER NOT NULL REFERENCES reservations(id),
+  amount_cents    INTEGER NOT NULL DEFAULT 0,
+  reason          TEXT,
+  status          TEXT    NOT NULL DEFAULT 'pending', -- 'pending' | 'approved' | 'rejected'
+  reviewed_by     TEXT,
+  reviewed_at     TEXT,
+  stripe_refund_id TEXT,
+  created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_refunds_status        ON refund_requests(status);
+CREATE INDEX IF NOT EXISTS idx_refunds_reservation   ON refund_requests(reservation_id);
+
+-- ============================================================
+-- migrations/005_user_accounts.sql
+-- ============================================================
+
+-- Customer accounts (optional — bookings work without an account)
+CREATE TABLE IF NOT EXISTS users (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  name         TEXT    NOT NULL,
+  email        TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+  phone        TEXT,
+  password_hash TEXT   NOT NULL,              -- bcrypt, cost factor 12
+  created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email COLLATE NOCASE);
+
+-- Star-rating feedback submitted after a completed hire
+CREATE TABLE IF NOT EXISTS booking_feedback (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  reservation_id INTEGER NOT NULL UNIQUE REFERENCES reservations(id),
+  rating         INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+  comment        TEXT,
+  created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ============================================================
+-- migrations/006_promo_code_discount.sql
+-- ============================================================
+
+-- Adds per-code discount percentage (replaces single global rate)
+ALTER TABLE promo_codes ADD COLUMN discount_percent INTEGER NOT NULL DEFAULT 0;
 ```
 
 ### 4.3 Availability Overlap Logic
@@ -390,7 +481,7 @@ const gstCents = Math.round(totalCents * GST_RATE / (1 + GST_RATE));
 **Base prefix:** `/api/v1`
 **Content-Type:** `application/json`
 **Dates:** ISO 8601 UTC strings in all request and response bodies
-**Authentication:** Admin endpoints require a session cookie. Public endpoints are unauthenticated but rate-limited.
+**Authentication:** Admin endpoints require an admin session cookie (`req.session.adminId`). Customer auth endpoints require a customer session cookie (`req.session.userId`). Public endpoints are unauthenticated but rate-limited.
 
 ### 5.1 Public Endpoints
 
@@ -540,6 +631,44 @@ Health check. Used by uptime monitoring services (UptimeRobot etc.) and PM2.
 
 ---
 
+#### `POST /api/v1/promo/validate`
+
+Validates a promo code without redeeming it. Called on every keystroke in the booking form promo field.
+
+**Request body:**
+```json
+{ "code": "SUMMER20" }
+```
+
+**Response 200 (valid):**
+```json
+{ "valid": true, "discount_percent": 20, "code": "SUMMER20" }
+```
+
+**Response 200 (invalid):**
+```json
+{ "valid": false, "error": "Code not found / expired / already used" }
+```
+
+The discount is applied to the daily rate only: `discountedDailyRate = dailyRate × (1 − discount_percent / 100)`. The code is not marked as used until the reservation is successfully created.
+
+---
+
+#### `GET /api/v1/public/cancellation-policy`
+
+Returns the current cancellation policy thresholds (read from the `settings` table). Used by the booking form to display the policy to customers before they accept terms.
+
+**Response 200:**
+```json
+{
+  "full_refund_hours": 48,
+  "partial_refund_hours": 24,
+  "partial_refund_percent": 50
+}
+```
+
+---
+
 ### 5.2 Admin Endpoints (Protected — Session Required)
 
 All admin routes require a valid admin session obtained via `POST /api/v1/admin/login`. Sessions expire after 8 hours.
@@ -552,12 +681,21 @@ All admin routes require a valid admin session obtained via `POST /api/v1/admin/
 | GET  | `/api/v1/admin/reservations` | List all reservations; filter by `status`, `vehicle_id`, `from`, `to`, `email` |
 | GET  | `/api/v1/admin/reservations/:id` | Single reservation detail (includes `vehicle_name`) |
 | PATCH | `/api/v1/admin/reservations/:id` | Update `status`, `payment_status`, and/or `notes` |
+| POST | `/api/v1/admin/reservations/:id/cancel` | Admin-initiated cancel — fires immediate full Stripe refund (T&C §2.5f), emails customer |
 | GET  | `/api/v1/admin/vehicles` | List all vehicles including `maintenance` and `retired` |
 | POST | `/api/v1/admin/vehicles` | Add new vehicle |
 | PATCH | `/api/v1/admin/vehicles/:id` | Update vehicle details / set maintenance window |
 | DELETE | `/api/v1/admin/vehicles/:id` | Retire vehicle (soft-delete — sets `status = 'retired'`) |
 | GET  | `/api/v1/admin/reports/csv` | Export reservations as CSV; accepts `from` and `to` ISO query params |
 | GET  | `/api/v1/admin/audit` | View audit log (last 500 entries, newest first) |
+| GET  | `/api/v1/admin/promo-codes` | List all promo codes |
+| POST | `/api/v1/admin/promo-codes` | Generate a batch of promo codes (`count`, `discount_percent`, optional `expires_at`) |
+| PATCH | `/api/v1/admin/promo-codes/:id/disable` | Disable an active promo code |
+| GET  | `/api/v1/admin/refund-requests` | List refund requests, filterable by status |
+| POST | `/api/v1/admin/refund-requests/:id/approve` | Approve a pending refund — fires Stripe refund, emails customer |
+| POST | `/api/v1/admin/refund-requests/:id/reject` | Reject a pending refund request |
+| GET  | `/api/v1/admin/settings` | Read cancellation policy settings |
+| POST | `/api/v1/admin/settings` | Update cancellation policy (`full_refund_hours`, `partial_refund_hours`, `partial_refund_percent`) |
 
 ### 5.3 Employee & Booking Code Endpoints (Admin Protected)
 
@@ -581,6 +719,25 @@ All admin routes require a valid admin session obtained via `POST /api/v1/admin/
 
 **Using a code in a reservation:** Add `booking_code` field to `POST /api/v1/reservations`. If valid, the code is redeemed and the reservation is created with `status=confirmed` and `payment_status=code_redeemed` atomically. No Stripe PaymentIntent is created.
 
+### 5.5 Customer Auth Endpoints
+
+Customer accounts are optional — guests can still book without one. Accounts use a separate session namespace (`req.session.userId`) that is completely independent of the admin session (`req.session.adminId`).
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/auth/register` | Register new account (`name`, `email`, `phone`, `password`). Password hashed with bcrypt cost 12. |
+| POST | `/api/v1/auth/login` | Sign in — sets `req.session.userId`. Returns `{ id, name, email, phone }`. |
+| POST | `/api/v1/auth/logout` | Destroy customer session. |
+| GET  | `/api/v1/auth/me` | Returns current customer user, or 401 if not signed in. Called on every page load to restore session. |
+| PATCH | `/api/v1/auth/profile` | Update `name` and/or `phone` for the signed-in customer. |
+
+### 5.6 Customer Bookings Endpoints (Customer Session Required)
+
+| Method | Path | Description |
+|---|---|---|
+| GET  | `/api/v1/my-bookings` | Returns all reservations where `customer_email COLLATE NOCASE` matches the signed-in user's email. Includes guest bookings made before account creation. |
+| POST | `/api/v1/my-bookings/:id/feedback` | Submit star rating (`rating` 1–5, optional `comment`) for a completed booking. One submission per reservation (UNIQUE constraint on `booking_feedback.reservation_id`). |
+
 ---
 
 ## 6. Frontend Architecture
@@ -588,25 +745,31 @@ All admin routes require a valid admin session obtained via `POST /api/v1/admin/
 ### 6.1 Page Structure & Routes
 
 ```
-/                        Landing — hero, fleet types, trust signals, how-it-works
+/                        Landing — Aurora Indigo hero, fleet cards, how-it-works (enterprise redesign)
 /availability            Availability search + results (date/time/type filter)
 /vehicles/:id            Vehicle detail — accessibility notes, price summary
 /booking                 Multi-step booking form (query: vehicle_id, start, end)
-  Step 1: Personal details (name, email, phone, intended use)
+  Step 1: Personal details (auto-filled from account if signed in; promo code field)
   Step 2: Terms & conditions acceptance (scrollable, timestamped checkbox)
   Step 3: Payment — choose Pay by Card (Stripe) or Employee Booking Code
 /booking/confirmation    Confirmation + booking summary; verifies Stripe PaymentIntent status
 /cancel/:id              Customer self-cancellation (email verification required)
+/login                   Customer sign in / register — tabbed AuthPage; redirects to /my-bookings
+/my-bookings             Customer bookings dashboard (session required → redirects to /login)
+                         Active: status badge + cancel link
+                         Completed without feedback: 5-star rating form + comment
 /privacy                 Privacy Policy (APP-compliant, NSW)
 /terms                   Terms & Conditions (NSW-specific, Electronic Transactions Act 2000)
 /admin/login             Admin login form
 /admin                   Redirects to /admin/dashboard
 /admin/dashboard         Stats, today's reservations, pending payment actions
 /admin/reservations      Filterable reservations list
-/admin/reservations/:id  Reservation detail + inline status/payment/notes editor
+/admin/reservations/:id  Reservation detail + inline status/payment/notes editor + admin-cancel button
 /admin/vehicles          Fleet list + add/edit/retire form
 /admin/employees         Employee list + add/edit/deactivate + generate booking codes
 /admin/codes             Booking code list + filter by status + disable codes
+/admin/promo-codes       Promo code generation (discount % per batch) + cancellation policy settings
+/admin/refund-requests   Pending refund queue — approve triggers Stripe refund + customer email
 /admin/reports           CSV export + audit log link
 ```
 
@@ -614,32 +777,37 @@ All admin routes require a valid admin session obtained via `POST /api/v1/admin/
 
 ```
 pages/
-  Landing.jsx
+  Landing.jsx             (Aurora Indigo enterprise hero; rainbow fleet cards teal/violet/amber/rose)
   Availability.jsx
   VehicleDetail.jsx
-  Booking.jsx             (contains all 3 booking steps; Step 3 = Card or Employee Code)
+  Booking.jsx             (all 3 steps; Step 1 auto-fills from user session; promo code field)
   Confirmation.jsx        (verifies Stripe PaymentIntent via /payments/verify)
   Cancel.jsx
+  AuthPage.jsx            (combined Sign In / Register — tabbed; redirects to /my-bookings on success)
+  MyBookings.jsx          (active bookings + cancel; completed bookings + 5-star feedback form)
   Privacy.jsx
   Terms.jsx
   admin/
     Login.jsx
     Dashboard.jsx
     Reservations.jsx
-    ReservationDetail.jsx
+    ReservationDetail.jsx (includes admin-cancel button — fires immediate Stripe refund)
     Vehicles.jsx
     Employees.jsx         (add/deactivate employees, generate booking codes)
     BookingCodes.jsx      (list all codes, filter by status, disable active codes)
+    PromoCodes.jsx        (generate batches with discount %; cancellation policy config)
+    RefundRequests.jsx    (pending queue; approve triggers Stripe refund + customer email)
     Reports.jsx
 components/
-  Header.jsx
-  Footer.jsx
+  Header.jsx              (dark gradient; logo + NSW subtitle; user dropdown; admin badge)
+  Footer.jsx              (dark gradient matching header; brand/legal/compliance columns)
   VehicleCard.jsx
   BookingProgress.jsx
   AdminNav.jsx            (shared navigation bar included on all admin pages)
   Alert.jsx               (AlertInfo, AlertWarning, AlertError, AlertSuccess)
 hooks/
   useAdminAuth.js         (polls /api/v1/admin/me to check session validity)
+  useUserAuth.jsx         (UserAuthProvider context; login/register/logout; pre-fills booking form)
 utils/
   api.js                  (all fetch() wrappers for the REST API)
   formatters.js           (formatAUD, formatSydney, refNum, vehicleTypeLabel,
@@ -676,7 +844,7 @@ The application must conform to **WCAG 2.1 Level AA** as required by the Austral
 
 ---
 
-## 7. Payment Integration — Stripe & Employee Codes
+## 7. Payment Integration — Stripe, Promo Codes & Refunds
 
 The application supports two payment paths on Step 3 of the booking form.
 
@@ -725,6 +893,55 @@ If the code is invalid, expired, already used, or disabled, a specific error mes
 ### 7.4 PCI Scope
 
 In the current Stripe Phase 2 implementation, the application server is **entirely out of PCI scope**. Card numbers, CVCs, and expiry dates never pass through the Node.js process — they go directly from the customer's browser to Stripe's servers. Only the Stripe `PaymentIntent.id` is stored. This is the safest possible integration model.
+
+### 7.5 Promo Code Discounts
+
+Promo codes carry a `discount_percent` (1–100) set at generation time. Each batch can have a different percentage — different groups of customers can receive different rates simultaneously without any code change.
+
+Discount calculation on the booking form:
+
+```javascript
+// Applied to daily rate only; hourly rate is unaffected
+const discountedDailyRate = dailyRate * (1 - discount_percent / 100);
+```
+
+The code is validated (non-destructively) via `POST /api/v1/promo/validate` on each keystroke. The actual redemption — marking the code as `used` and linking it to the reservation — happens atomically inside the `POST /api/v1/reservations` transaction.
+
+### 7.6 Refund Workflow
+
+Two distinct refund paths exist, depending on who initiates the cancellation.
+
+#### Customer-initiated cancellation
+
+1. Customer visits `/cancel/:id` (link in confirmation email) or clicks Cancel in My Bookings
+2. `PATCH /api/v1/reservations/:id/cancel` is called with their email for verification
+3. Backend checks cancellation policy (`settings` table) to calculate refund entitlement
+4. A `refund_requests` row is inserted with `status='pending'` and the calculated `amount_cents`
+5. The reservation status is set to `cancelled`
+6. Admin sees the pending item at `/admin/refund-requests`
+7. Admin clicks **Approve** → `POST /api/v1/admin/refund-requests/:id/approve`
+8. Backend calls `stripe.refunds.create({ payment_intent: row.payment_token, amount: amount_cents })`
+9. Customer receives an email: "Expect your refund within 7–10 business days"
+
+#### Admin-initiated cancellation
+
+1. Admin clicks "Cancel This Booking" on the reservation detail page
+2. `POST /api/v1/admin/reservations/:id/cancel` is called
+3. Backend immediately calls `stripe.refunds.create(...)` for the **full** amount (T&C §2.5f)
+4. Reservation status → `cancelled`, `payment_status` → `refunded`
+5. Customer receives an automatic email notification
+6. **No pending refund request is created** — it bypasses the review queue entirely
+
+#### Cancellation policy configuration
+
+Stored in the `settings` table and configurable from `/admin/promo-codes` (Cancellation Policy section):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `full_refund_hours` | `48` | Cancellations more than this many hours before pickup → 100% refund |
+| `partial_refund_hours` | `24` | Cancellations between this and `full_refund_hours` before pickup → partial refund |
+| `partial_refund_percent` | `50` | Percentage refunded in the partial window |
+| Below `partial_refund_hours` | — | 0% refund (no refund) |
 
 ---
 
@@ -891,17 +1108,24 @@ Installs Vite/React/Tailwind tooling into `frontend/node_modules/`. First run ta
 
 **Create the database and run migrations:**
 
-```powershell
-npm run migrate
+```bash
+node -e "
+const fs = require('fs');
+const db = require('better-sqlite3')('./data/rental.sqlite');
+const files = fs.readdirSync('./migrations').filter(f => f.endsWith('.sql')).sort();
+for (const f of files) {
+  try { db.exec(fs.readFileSync('./migrations/' + f, 'utf8')); console.log('Applied:', f); }
+  catch(e) { console.log(e.message.includes('duplicate') || e.message.includes('already exists') ? 'Skip: ' + f : 'ERROR ' + f + ': ' + e.message); }
+}
+db.close();
+"
 ```
 
-Runs `scripts/migrate.js` which:
-1. Loads `.env` to read `DATABASE_PATH`
-2. Creates the `data/` directory if it doesn't exist
-3. Opens (or creates) `data/rental.sqlite`
-4. Executes `migrations/001_initial_schema.sql` — creates `vehicles`, `reservations`, and `audit_log` tables plus all indexes
+This applies all 6 migrations idempotently. Safe to run at any time — already-applied migrations are silently skipped.
 
-Expected output: `Migration complete.`
+> **Note:** `npm run migrate` re-runs all SQL files and will fail on an existing database (the `ALTER TABLE` in migration 006 is not idempotent). Always use the inline snippet above.
+
+Expected output: `Applied: 001_initial.sql  Applied: 002_...  ...  Applied: 006_promo_code_discount.sql`
 
 **Seed 100 sample vehicles:**
 
@@ -1055,11 +1279,9 @@ SELECT * FROM reservations ORDER BY created_at DESC LIMIT 5;
 
 ```powershell
 Remove-Item data\rental.sqlite
-npm run migrate
+node -e "const fs=require('fs'),db=require('better-sqlite3')('./data/rental.sqlite'),files=fs.readdirSync('./migrations').filter(f=>f.endsWith('.sql')).sort();for(const f of files){try{db.exec(fs.readFileSync('./migrations/'+f,'utf8'));console.log('Applied:',f);}catch(e){console.log('Skip:',f);}}db.close();"
 npm run seed
 ```
-
-Or use the VS Code task **"DB: Reset Database (delete + migrate + seed)"**.
 
 ---
 
@@ -1371,11 +1593,22 @@ npm ci --omit=dev
 
 > `npm ci` (Clean Install) installs exact versions from `package-lock.json`, not the `^` ranges in `package.json`. This gives reproducible, deterministic installs. `--omit=dev` excludes Jest and other dev-only packages.
 
-**Run database migration:**
+**Run database migrations (idempotent — safe on an existing database):**
 
 ```bash
-npm run migrate
+node -e "
+const fs = require('fs');
+const db = require('better-sqlite3')(process.env.DATABASE_PATH || './data/rental.sqlite');
+const files = fs.readdirSync('./migrations').filter(f => f.endsWith('.sql')).sort();
+for (const f of files) {
+  try { db.exec(fs.readFileSync('./migrations/' + f, 'utf8')); console.log('Applied:', f); }
+  catch(e) { console.log(e.message.includes('duplicate') || e.message.includes('already exists') ? 'Skip: ' + f : 'ERROR ' + f + ': ' + e.message); }
+}
+db.close();
+"
 ```
+
+> `npm run migrate` re-runs all SQL files and fails on existing databases. Use the inline snippet above instead.
 
 **Seed the fleet (first deployment only):**
 
@@ -1596,7 +1829,7 @@ jobs:
             git pull
             npm ci --omit=dev
             cd frontend && npm ci && npm run build && cd ..
-            npm run migrate
+            node -e "const fs=require('fs'),db=require('better-sqlite3')(process.env.DATABASE_PATH||'./data/rental.sqlite'),files=fs.readdirSync('./migrations').filter(f=>f.endsWith('.sql')).sort();for(const f of files){try{db.exec(fs.readFileSync('./migrations/'+f,'utf8'));console.log('Applied:',f);}catch(e){console.log(e.message.includes('duplicate')||e.message.includes('already exists')?'Skip: '+f:'ERROR '+f+': '+e.message);}}db.close();"
             pm2 reload rental-api
 ```
 
@@ -1618,8 +1851,17 @@ npm ci --omit=dev
 # Rebuild frontend if any frontend files changed
 cd frontend && npm ci && npm run build && cd ..
 
-# Run migrations if schema changed (safe to re-run — uses CREATE TABLE IF NOT EXISTS)
-npm run migrate
+# Apply any new migrations (idempotent — skips already-applied files)
+node -e "
+const fs = require('fs');
+const db = require('better-sqlite3')(process.env.DATABASE_PATH || './data/rental.sqlite');
+const files = fs.readdirSync('./migrations').filter(f => f.endsWith('.sql')).sort();
+for (const f of files) {
+  try { db.exec(fs.readFileSync('./migrations/' + f, 'utf8')); console.log('Applied:', f); }
+  catch(e) { console.log(e.message.includes('duplicate') || e.message.includes('already exists') ? 'Skip: ' + f : 'ERROR ' + f + ': ' + e.message); }
+}
+db.close();
+"
 
 # Reload the application gracefully (zero downtime)
 pm2 reload rental-api
@@ -1652,30 +1894,35 @@ UptimeRobot emails you if the health check fails — the site is down.
 
 ### 13.1 Migration Runner
 
-The runner (`scripts/migrate.js`) loads `.env`, auto-creates the `data/` directory if missing, then applies the SQL schema:
+> **Important:** `npm run migrate` re-runs **all** SQL files in sequence. On an existing database this will fail with "table already exists" or "duplicate column" errors because migrations 001–002 use `CREATE TABLE IF NOT EXISTS` but later migrations use `ALTER TABLE` which is not idempotent. Use the **inline idempotent snippet** below for all deployments instead.
 
-```javascript
-// scripts/migrate.js
-const Database = require('better-sqlite3');
+**Idempotent migration snippet (safe to run at every deploy):**
+
+```bash
+node -e "
 const fs = require('fs');
-const path = require('path');
-
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
-
-const dbPath = process.env.DATABASE_PATH || './data/rental.sqlite';
-const dir = path.dirname(dbPath);
-if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-const db = new Database(dbPath);
-const sql = fs.readFileSync(
-  path.join(__dirname, '../migrations/001_initial_schema.sql'), 'utf8'
-);
-db.exec(sql);
+const db = require('better-sqlite3')(process.env.DATABASE_PATH || './data/rental.sqlite');
+const files = fs.readdirSync('./migrations').filter(f => f.endsWith('.sql')).sort();
+for (const f of files) {
+  try { db.exec(fs.readFileSync('./migrations/' + f, 'utf8')); console.log('Applied:', f); }
+  catch(e) { console.log(e.message.includes('duplicate') || e.message.includes('already exists') ? 'Skip: ' + f : 'ERROR ' + f + ': ' + e.message); }
+}
 db.close();
-console.log('Migration complete.');
+"
 ```
 
-The schema uses `CREATE TABLE IF NOT EXISTS` everywhere — migrations are **idempotent**. Running `npm run migrate` on an already-migrated database is safe.
+This silently skips any file that produces a "duplicate column" or "already exists" error (migrations that have already been applied), and prints `ERROR` for genuinely new problems that need attention.
+
+**Migration files:**
+
+| File | Tables / Columns Created |
+|---|---|
+| `001_initial.sql` | `vehicles`, `reservations`, `audit_log` + indexes |
+| `002_booking_codes.sql` | `employees`, `booking_codes` + indexes |
+| `003_settings_and_promo_codes.sql` | `settings`, `promo_codes` + indexes |
+| `004_cancellation_policy_and_refunds.sql` | `refund_requests` + indexes |
+| `005_user_accounts.sql` | `users`, `booking_feedback` + indexes |
+| `006_promo_code_discount.sql` | `ALTER TABLE promo_codes ADD COLUMN discount_percent` |
 
 ### 13.2 Seed Script
 
@@ -1709,12 +1956,11 @@ SELECT v.name, COUNT(r.id) as bookings
 
 When the schema needs changing:
 
-1. Create a new file: `migrations/002_add_feature.sql`
-2. Add your `ALTER TABLE` or new `CREATE TABLE IF NOT EXISTS` statements
-3. Update `scripts/migrate.js` to also execute the new file
-4. Run `npm run migrate` — it applies the new file without re-running the original schema
+1. Create a new file: `migrations/007_my_feature.sql` (increment the prefix)
+2. Add your `ALTER TABLE` or `CREATE TABLE IF NOT EXISTS` statements
+3. Run the idempotent inline snippet from §13.1 — it applies the new file and skips already-applied ones
 
-Do **not** modify `migrations/001_initial_schema.sql` after it has been applied to a production database — that would not apply the changes and could confuse future developers.
+Do **not** modify existing migration files after they have been applied to any database — the idempotent snippet will skip them by name, not by content. Changes to an existing file will be silently ignored.
 
 ---
 

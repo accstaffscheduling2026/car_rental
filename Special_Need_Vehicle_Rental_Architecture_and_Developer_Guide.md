@@ -8,6 +8,21 @@
 
 ---
 
+> **⚠️ This document has been superseded.**
+>
+> This is the original architecture specification (v1.1.0). It covers Phase 1 only and does not include:
+> - Customer accounts and My Bookings (`/login`, `/my-bookings`, `users` table, `booking_feedback` table)
+> - Promo codes with per-code discount percentages (`promo_codes` table, `discount_percent` column)
+> - Refund workflow (customer pending queue + admin immediate Stripe refund, `refund_requests` table)
+> - Cancellation policy configuration (`settings` table, `/admin/promo-codes` settings section)
+> - Enterprise redesign (Aurora Indigo theme, dark gradient header/footer, rainbow status system)
+> - Corrected migration instructions (`npm run migrate` is broken on existing databases — use the idempotent inline snippet)
+>
+> **The authoritative reference is [`COMPLETE_DEVELOPER_GUIDE.md`](COMPLETE_DEVELOPER_GUIDE.md) (v2.0.0).**
+> This file is kept for historical reference only.
+
+---
+
 ## Table of Contents
 
 1. [Overview & Purpose](#1-overview--purpose)
