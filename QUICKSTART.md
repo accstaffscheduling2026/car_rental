@@ -73,6 +73,7 @@ Then open: **http://localhost:5173**
 | http://localhost:5173/login | Customer sign in / register |
 | http://localhost:5173/my-bookings | Customer bookings dashboard |
 | http://localhost:5173/admin | Admin dashboard |
+| http://localhost:5173/admin/site-settings | Site Settings (maintenance, content, legal docs) |
 | http://localhost:8080/api/v1/health | Health check |
 
 **Admin login:** username `admin`, password `admin` (development only)
@@ -136,6 +137,7 @@ Copy `.env.example` to `.env` and fill in your values:
 - **Promo Codes & Rates** — generate promo code batches with a custom discount % per batch; cancellation policy configuration (full-refund and partial-refund time thresholds)
 - **Reports** — CSV export of bookings and revenue
 - **Audit log** — timestamped record of every action
+- **Site Settings** — maintenance mode (manual toggle + optional scheduled window); announcement banner; business info (name/ABN/phone/address/email/hours); landing page hero text; legal document PDF upload (T&C and Privacy Policy)
 
 ### API Routes
 | Route | Description |
@@ -157,6 +159,10 @@ Copy `.env.example` to `.env` and fill in your values:
 | `PATCH /api/v1/auth/profile` | Update name/phone |
 | `GET /api/v1/my-bookings` | Customer's own bookings |
 | `POST /api/v1/my-bookings/:id/feedback` | Submit star rating + comment |
+| `GET /api/v1/public/site-config` | All published site content (never blocked by maintenance) |
+| `GET /api/v1/admin/site-content` | Admin: read all content keys |
+| `POST /api/v1/admin/site-content` | Admin: update content keys |
+| `POST /api/v1/admin/site-content/upload/:type` | Admin: upload T&C or Privacy Policy PDF |
 | `GET /api/v1/health` | Health check |
 
 ### Database Migrations
@@ -168,6 +174,7 @@ Copy `.env.example` to `.env` and fill in your values:
 | `004_cancellation_policy_and_refunds.sql` | `refund_requests`; adds cancellation columns to `settings` |
 | `005_user_accounts.sql` | `users`, `booking_feedback` |
 | `006_promo_code_discount.sql` | Adds `discount_percent` to `promo_codes` |
+| `007_site_content.sql` | `site_content` table (18 keys seeded: business info, hero text, maintenance, banner, legal filenames) |
 
 ### Non-functional
 - **WCAG 2.1 AA accessibility** — keyboard navigation, ARIA, skip links, semantic HTML

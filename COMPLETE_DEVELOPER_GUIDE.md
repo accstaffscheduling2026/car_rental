@@ -1,7 +1,7 @@
 # Special Need Vehicle Rental
 ## Complete Developer Guide
 
-**Version:** 2.0.0 (updated with customer accounts, promo codes, refund workflow, enterprise redesign)
+**Version:** 2.1.0 (updated with Site Settings — maintenance mode, dynamic content, legal PDF upload)
 **Last Updated:** June 2026
 **Business:** SwiftRide Rentals Pty Ltd — 483 Hume Highway, Yagoona NSW 2199
 **Jurisdiction:** New South Wales, Australia
@@ -180,6 +180,7 @@ These are the exact version specifiers from `package.json`. The `^` prefix means
 | `pino-http` | `^10.1.0` | Per-request HTTP logging middleware |
 | `helmet` | `^7.1.0` | Common security response headers |
 | `cors` | `^2.8.5` | CORS — allows Vite dev server (5173) to call the API (8080) |
+| `multer` | `^1.4.5-lts.2` | Multipart form-data file upload middleware — used for legal PDF uploads in Site Settings |
 | `jest` *(dev)* | `^29.7.0` | Unit test runner |
 
 ### 3.2 Frontend npm Packages
@@ -445,6 +446,39 @@ CREATE TABLE IF NOT EXISTS booking_feedback (
 
 -- Adds per-code discount percentage (replaces single global rate)
 ALTER TABLE promo_codes ADD COLUMN discount_percent INTEGER NOT NULL DEFAULT 0;
+
+-- ============================================================
+-- migrations/007_site_content.sql
+-- ============================================================
+
+-- Key/value store for all editable site content
+CREATE TABLE IF NOT EXISTS site_content (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL DEFAULT '',
+  label      TEXT NOT NULL DEFAULT '',   -- human-readable label for admin UI
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Seed default values (18 keys)
+INSERT OR IGNORE INTO site_content (key, label, value) VALUES
+  ('business_name',      'Business Name',              'SwiftRide Rentals'),
+  ('business_abn',       'ABN',                        ''),
+  ('business_phone',     'Phone Number',               ''),
+  ('business_address',   'Address',                    ''),
+  ('business_email',     'Contact Email',              ''),
+  ('business_hours',     'Trading Hours',              ''),
+  ('hero_headline',      'Hero Headline',              'Accessible Vehicles for Every Journey'),
+  ('hero_subheadline',   'Hero Subheadline',           'Book online in minutes. Pay securely. Drive with confidence.'),
+  ('hero_tagline',       'Hero Tagline',               ''),
+  ('hero_cta_text',      'Hero CTA Button Text',       'Browse Available Vehicles'),
+  ('banner_enabled',     'Announcement Banner Active', '0'),
+  ('banner_message',     'Announcement Banner Text',   ''),
+  ('maintenance_enabled','Maintenance Mode Active',    '0'),
+  ('maintenance_message','Maintenance Message',        'We are currently performing scheduled maintenance. We will be back online shortly.'),
+  ('maintenance_start',  'Maintenance Window Start',   ''),
+  ('maintenance_end',    'Maintenance Window End',     ''),
+  ('legal_terms_filename',   'Terms PDF Filename',     ''),
+  ('legal_privacy_filename', 'Privacy PDF Filename',   '');
 ```
 
 ### 4.3 Availability Overlap Logic
@@ -620,6 +654,24 @@ Register this URL in Stripe Dashboard → Developers → Webhooks. Events: `paym
 
 ---
 
+#### `GET /api/v1/public/site-config`
+
+Returns all `site_content` key/value pairs as a flat object. Called by the React frontend at app startup via `SiteConfigProvider`. Never blocked by maintenance middleware — the frontend needs this to determine whether maintenance mode is active.
+
+**Response 200:**
+```json
+{
+  "business_name": "SwiftRide Rentals",
+  "business_phone": "0434 620 086",
+  "maintenance_enabled": "0",
+  "banner_enabled": "0",
+  "hero_headline": "Accessible Vehicles for Every Journey",
+  ...
+}
+```
+
+---
+
 #### `GET /api/v1/health`
 
 Health check. Used by uptime monitoring services (UptimeRobot etc.) and PM2.
@@ -738,6 +790,21 @@ Customer accounts are optional — guests can still book without one. Accounts u
 | GET  | `/api/v1/my-bookings` | Returns all reservations where `customer_email COLLATE NOCASE` matches the signed-in user's email. Includes guest bookings made before account creation. |
 | POST | `/api/v1/my-bookings/:id/feedback` | Submit star rating (`rating` 1–5, optional `comment`) for a completed booking. One submission per reservation (UNIQUE constraint on `booking_feedback.reservation_id`). |
 
+### 5.7 Site Content Endpoints (Admin Protected + Public Read)
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/public/site-config` | None | All `site_content` key/value pairs; never blocked by maintenance middleware |
+| GET | `/api/v1/admin/site-content` | Admin session | All 18 keys with `label`, `value`, and `updated_at` |
+| POST | `/api/v1/admin/site-content` | Admin session | Batch upsert — body is `{ key: value, ... }`; uses `INSERT ... ON CONFLICT(key) DO UPDATE` |
+| POST | `/api/v1/admin/site-content/upload/:type` | Admin session | Upload a PDF for `type` = `terms` or `privacy`; stores file as `uploads/legal/terms.pdf` or `privacy.pdf`; saves original filename in `site_content`; PDF-only, 10 MB max |
+
+**Maintenance middleware note:** The maintenance check in `server.js` runs on all `/api/v1` routes but explicitly skips:
+- `/admin/*` — admin panel stays accessible
+- `/public/site-config` — frontend must always be able to read maintenance status
+- `/auth/*` — customer login/logout
+- `/health` — uptime monitoring
+
 ---
 
 ## 6. Frontend Architecture
@@ -771,6 +838,8 @@ Customer accounts are optional — guests can still book without one. Accounts u
 /admin/promo-codes       Promo code generation (discount % per batch) + cancellation policy settings
 /admin/refund-requests   Pending refund queue — approve triggers Stripe refund + customer email
 /admin/reports           CSV export + audit log link
+/admin/site-settings     Site Settings — maintenance mode (manual toggle + optional scheduled window),
+                         announcement banner, business info, landing page hero text, legal PDF upload
 ```
 
 ### 6.2 File Tree (`frontend/src/`)
@@ -787,6 +856,7 @@ pages/
   MyBookings.jsx          (active bookings + cancel; completed bookings + 5-star feedback form)
   Privacy.jsx
   Terms.jsx
+  Maintenance.jsx         (full-screen maintenance page — shown when maintenance mode is active)
   admin/
     Login.jsx
     Dashboard.jsx
@@ -798,20 +868,30 @@ pages/
     PromoCodes.jsx        (generate batches with discount %; cancellation policy config)
     RefundRequests.jsx    (pending queue; approve triggers Stripe refund + customer email)
     Reports.jsx
+    SiteSettings.jsx      (maintenance mode, announcement banner, business info, hero text, legal PDF upload)
 components/
-  Header.jsx              (dark gradient; logo + NSW subtitle; user dropdown; admin badge)
-  Footer.jsx              (dark gradient matching header; brand/legal/compliance columns)
+  Header.jsx              (dark gradient; business_name + phone from useSiteConfig(); user dropdown; admin badge)
+  Footer.jsx              (dark gradient; all business info from useSiteConfig())
   VehicleCard.jsx
   BookingProgress.jsx
-  AdminNav.jsx            (shared navigation bar included on all admin pages)
+  AdminNav.jsx            (shared navigation bar included on all admin pages; includes Site Settings link)
   Alert.jsx               (AlertInfo, AlertWarning, AlertError, AlertSuccess)
 hooks/
   useAdminAuth.js         (polls /api/v1/admin/me to check session validity)
   useUserAuth.jsx         (UserAuthProvider context; login/register/logout; pre-fills booking form)
+  useSiteConfig.jsx       (SiteConfigProvider — fetches /api/v1/public/site-config on load;
+                           useSiteConfig() hook; isMaintenanceActive(config) helper)
 utils/
-  api.js                  (all fetch() wrappers for the REST API)
+  api.js                  (all fetch() wrappers; includes adminGetSiteContent, adminSaveSiteContent,
+                           adminUploadLegalDoc)
   formatters.js           (formatAUD, formatSydney, refNum, vehicleTypeLabel,
                            statusBadgeClass, paymentBadgeClass)
+
+uploads/
+  legal/
+    .gitkeep              (directory tracked in git; actual PDF files excluded via .gitignore)
+    terms.pdf             (uploaded T&C PDF — not committed; served as /uploads/legal/terms.pdf)
+    privacy.pdf           (uploaded Privacy Policy PDF — not committed)
 ```
 
 ### 6.3 Booking Reference Number Format
@@ -1923,6 +2003,7 @@ This silently skips any file that produces a "duplicate column" or "already exis
 | `004_cancellation_policy_and_refunds.sql` | `refund_requests` + indexes |
 | `005_user_accounts.sql` | `users`, `booking_feedback` + indexes |
 | `006_promo_code_discount.sql` | `ALTER TABLE promo_codes ADD COLUMN discount_percent` |
+| `007_site_content.sql` | `site_content` table (18 keys seeded: business info, hero text, maintenance config, banner, legal filenames) |
 
 ### 13.2 Seed Script
 
@@ -1956,7 +2037,7 @@ SELECT v.name, COUNT(r.id) as bookings
 
 When the schema needs changing:
 
-1. Create a new file: `migrations/007_my_feature.sql` (increment the prefix)
+1. Create a new file: `migrations/008_my_feature.sql` (increment the prefix; 007 is already taken by `site_content`)
 2. Add your `ALTER TABLE` or `CREATE TABLE IF NOT EXISTS` statements
 3. Run the idempotent inline snippet from §13.1 — it applies the new file and skips already-applied ones
 

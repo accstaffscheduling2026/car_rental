@@ -1,9 +1,9 @@
 # Special Need Vehicle Rental
 ## Developer Environment Guide — Local, Test & Production
 
-**Version:** 2.0.0
+**Version:** 2.1.0
 **Date:** June 2026
-**Applies to:** Application version 2.0.0 (customer accounts, promo codes, refund workflow, enterprise redesign)
+**Applies to:** Application version 2.1.0 (customer accounts, promo codes, refund workflow, enterprise redesign, Site Settings)
 **Jurisdiction:** New South Wales, Australia
 
 ---
@@ -208,7 +208,7 @@ db.close();
 "
 ```
 
-This applies all 6 migrations idempotently — already-applied files are silently skipped.
+This applies all 7 migrations idempotently — already-applied files are silently skipped.
 
 > **Note:** `npm run migrate` re-runs all SQL files and fails on existing databases. Always use the inline snippet above.
 
@@ -220,6 +220,7 @@ Applied: 003_settings_and_promo_codes.sql
 Applied: 004_cancellation_policy_and_refunds.sql
 Applied: 005_user_accounts.sql
 Applied: 006_promo_code_discount.sql
+Applied: 007_site_content.sql
 ```
 
 **Seed 100 sample vehicles:**
@@ -307,6 +308,7 @@ Expected output:
 | `http://localhost:5173/admin` | Admin dashboard (after login) |
 | `http://localhost:5173/admin/promo-codes` | Promo code generator + cancellation policy settings |
 | `http://localhost:5173/admin/refund-requests` | Pending refund approval queue |
+| `http://localhost:5173/admin/site-settings` | Site Settings (maintenance mode, business content, legal docs) |
 | `http://localhost:8080/api/v1/health` | API health check JSON response |
 | `http://localhost:8080/api/v1/vehicles` | Raw JSON list of all vehicles |
 
@@ -318,7 +320,7 @@ Expected output:
 
 The SQLite database file lives at `./data/rental.sqlite`. This file is a single binary file — you can copy it, back it up, or delete it and re-run the migration snippet + seed to start fresh.
 
-After running all 6 migrations the database contains these 11 tables:
+After running all 7 migrations the database contains these 12 tables:
 
 | Table | Purpose |
 |---|---|
@@ -332,6 +334,7 @@ After running all 6 migrations the database contains these 11 tables:
 | `refund_requests` | Pending customer-initiated refunds awaiting admin approval |
 | `users` | Optional customer accounts (bcrypt passwords) |
 | `booking_feedback` | Star ratings + comments on completed hires |
+| `site_content` | Key/value store for all editable site content (business info, hero text, maintenance config, banner, legal filenames) |
 | `sqlite_sequence` | SQLite auto-increment tracking (internal) |
 
 **To inspect the database manually:**
@@ -350,6 +353,7 @@ SELECT * FROM reservations ORDER BY created_at DESC LIMIT 5;
 SELECT * FROM users;
 SELECT * FROM promo_codes;
 SELECT * FROM refund_requests WHERE status = 'pending';
+SELECT key, value, updated_at FROM site_content;
 .quit
 ```
 
@@ -1142,4 +1146,4 @@ Certbot renews by making an HTTP challenge request to your domain. If Nginx is d
 
 ---
 
-*This guide covers version 1.0.0 of the application. Update when infrastructure or dependencies change.*
+*This guide covers version 2.1.0 of the application. Update when infrastructure or dependencies change.*

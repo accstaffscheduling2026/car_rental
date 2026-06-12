@@ -23,6 +23,7 @@
 | Admin — Booking Codes | https://swiftriderentals.com.au/admin/codes |
 | Admin — Promo Codes & Rates | https://swiftriderentals.com.au/admin/promo-codes |
 | Admin — Refund Requests | https://swiftriderentals.com.au/admin/refund-requests |
+| Admin — Site Settings | https://swiftriderentals.com.au/admin/site-settings |
 | Admin — Reports | https://swiftriderentals.com.au/admin/reports |
 | API health check | https://swiftriderentals.com.au/api/v1/health |
 
@@ -272,7 +273,8 @@ The cancellation policy (partial vs full refund thresholds) is configurable at `
 - [x] Customer accounts, My Bookings, and feedback live
 - [x] Cancellation policy configuration and refund workflow live
 - [x] Admin cancel with immediate Stripe refund live
-- [x] Migrations 001–006 applied to production database
+- [x] Migrations 001–007 applied to production database
+- [x] Site Settings live: maintenance mode, dynamic content, legal PDF upload
 - [ ] Switch Stripe keys to **live** before accepting real payments
 - [ ] Register Stripe webhook and set `STRIPE_WEBHOOK_SECRET` in `.env`
 - [ ] Set up SMTP email — Mailgun recommended (update `SMTP_*` vars in `/var/www/rental/.env`)
@@ -287,4 +289,4 @@ The cancellation policy (partial vs full refund thresholds) is configurable at `
 
 ---
 
-*Last updated: June 2026 — All Phase 2 features live: Stripe payments, employee codes, customer accounts, promo codes, refund workflow, enterprise redesign*
+*Last updated: June 2026 — All Phase 2 features live: Stripe payments, employee codes, customer accounts, promo codes, refund workflow, enterprise redesign, Site Settings (maintenance mode, dynamic content, legal PDF upload)*

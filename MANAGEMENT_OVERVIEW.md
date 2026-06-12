@@ -1,7 +1,7 @@
 # SwiftRide Rentals — Management Overview
 ## Special Need Vehicle Rental Platform
 
-**Prepared:** June 2026 (updated with customer accounts, promo codes, refund workflow, and enterprise redesign)
+**Prepared:** June 2026 (updated with customer accounts, promo codes, refund workflow, enterprise redesign, and Site Settings)
 **Business:** SwiftRide Rentals Pty Ltd
 **Address:** 483 Hume Highway, Yagoona NSW 2199
 **Phone:** 0434 620 086
@@ -52,6 +52,7 @@ The facility operates a fleet of 100 vehicles — wheelchair-accessible vans, pe
 - **Manage booking codes** — view all codes (active/used/expired/disabled), disable any active code
 - **Promo codes** — generate batches of one-time discount codes; each batch carries its own discount percentage so different customer groups can receive different rates (e.g. 15% for standard, 25% for VIP)
 - **Cancellation policy** — configure full-refund and partial-refund time windows without needing developer involvement
+- **Site Settings** — enable maintenance mode (manual toggle, or scheduled start/end window); publish an announcement banner shown on all public pages; edit business name, phone, address, email, and trading hours; edit the landing page headline, subheadline, and call-to-action; upload legal PDF documents to replace the built-in Terms & Conditions and Privacy Policy pages
 
 ### What It Does Automatically
 - Prevents double-bookings — no two customers can book the same vehicle at the same time
@@ -289,7 +290,44 @@ The cancellation policy is configurable from Admin → **Promo Codes & Rates** (
 
 ---
 
-## 13. What Comes Next
+## 13. Site Settings — Maintenance Mode & Dynamic Content
+
+The **Site Settings** panel at `/admin/site-settings` lets staff manage several important aspects of the live site without involving a developer.
+
+### Maintenance Mode
+
+When the business needs to take the booking site offline temporarily (e.g. for scheduled maintenance, a public holiday closure, or a system update), maintenance mode can be activated in two ways:
+
+| Mode | How |
+|---|---|
+| **Manual** | Toggle "Maintenance Mode" on — the site goes offline immediately and stays offline until the toggle is switched off |
+| **Scheduled** | Set a start date/time and end date/time — the site switches to maintenance automatically during that window and returns to normal afterwards without any action required |
+
+When maintenance mode is active:
+- All public pages show a custom maintenance message instead of the booking site
+- The admin panel remains fully accessible — staff can still review and manage bookings
+- The maintenance message is customisable (e.g. "We are performing routine maintenance. Back online Monday 9 AM Sydney time.")
+
+### Announcement Banner
+
+A dismissible banner can be displayed at the top of all public pages. Use this for short-notice messages such as public holiday closures, special promotions, or service alerts. The banner can be toggled on or off at any time without affecting other settings.
+
+### Business Information & Landing Page Content
+
+All text that identifies the business on the website — name, phone, address, email, trading hours, and the landing page headlines — is stored in the database and editable from this panel. Changes take effect as soon as the page is saved without requiring a deployment.
+
+| Section | Fields Editable |
+|---|---|
+| Business information | Business name, phone number, address, email address, trading hours |
+| Landing page hero | Main headline, subheadline, tagline, call-to-action button label |
+
+### Legal Documents
+
+The Terms & Conditions and Privacy Policy pages can be replaced with uploaded PDF files. Once a PDF is uploaded, the web page for that document shows the PDF in an inline viewer with Open and Download buttons, rather than the built-in text version. This allows a solicitor-reviewed version to replace the draft documents without any code changes.
+
+---
+
+## 14. What Comes Next
 
 ### Immediate (before public launch)
 - [ ] **Legal review** — Privacy Policy and Terms & Conditions reviewed by a NSW solicitor
@@ -316,7 +354,7 @@ The cancellation policy is configurable from Admin → **Promo Codes & Rates** (
 
 ---
 
-## 14. Source Code & Documentation
+## 15. Source Code & Documentation
 
 | Document | Purpose |
 |---|---|
@@ -331,7 +369,7 @@ All source code, configuration, and documentation is version-controlled. Secrets
 
 ---
 
-## 15. Key Contacts & Access
+## 16. Key Contacts & Access
 
 | Role | Detail |
 |---|---|
@@ -344,6 +382,6 @@ All source code, configuration, and documentation is version-controlled. Secrets
 
 ---
 
-*This document provides a management-level overview of the SwiftRide Rentals platform as of June 2026.
+*This document provides a management-level overview of the SwiftRide Rentals platform as of June 2026 — including all Phase 2 features and Site Settings (maintenance mode, dynamic content, legal PDF upload).
 For technical implementation details, refer to `COMPLETE_DEVELOPER_GUIDE.md`.
 For operational procedures (server access, deploy steps, Stripe configuration), refer to `PRODUCTION.md`.*
