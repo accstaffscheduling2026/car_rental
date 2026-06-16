@@ -271,12 +271,14 @@ export default function Landing() {
             >
               Check Availability
             </button>
-            <a
-              href={`tel:${PHONE.replace(/[\s()]/g, '')}`}
-              className="border-2 border-white/40 text-white font-semibold py-3 px-8 rounded-lg text-base hover:bg-white/10 hover:border-white/70 focus-visible:ring-2 focus-visible:ring-white transition-all text-center min-h-[44px] flex items-center justify-center"
-            >
-              {PHONE}
-            </a>
+            {business_phone && (
+              <a
+                href={`tel:${business_phone.replace(/[\s()]/g, '')}`}
+                className="border-2 border-white/40 text-white font-semibold py-3 px-8 rounded-lg text-base hover:bg-white/10 hover:border-white/70 focus-visible:ring-2 focus-visible:ring-white transition-all text-center min-h-[44px] flex items-center justify-center"
+              >
+                {business_phone}
+              </a>
+            )}
           </div>
         </div>
       </section>
